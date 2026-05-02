@@ -395,9 +395,9 @@ fi
 echo "[OK] VM procesada: $VM_NAME"
 echo "[INFO] MAC primaria configurada: $PRIMARY_MAC"
 
-vm_ip="$(sudo virsh domifaddr "$VM_NAME" --source agent 2>/dev/null | awk '/ipv4/ {split($4, a, "/"); print a[1]; exit}')"
+vm_ip="$(sudo virsh domifaddr "$VM_NAME" --source agent 2>/dev/null | awk '/ipv4/ {split($4, a, "/"); print a[1]; exit}' || true)"
 if [[ -z "${vm_ip// }" ]]; then
-  vm_ip="$(sudo virsh domifaddr "$VM_NAME" 2>/dev/null | awk '/ipv4/ {split($4, a, "/"); print a[1]; exit}')"
+  vm_ip="$(sudo virsh domifaddr "$VM_NAME" 2>/dev/null | awk '/ipv4/ {split($4, a, "/"); print a[1]; exit}' || true)"
 fi
 
 if [[ -n "${vm_ip// }" ]]; then

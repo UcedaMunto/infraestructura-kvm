@@ -26,15 +26,15 @@
 | **NGINX LB-2** | eth0 → 192.168.10.21 | Balanceador contingencia | 80, 443, 22, VRRP 112 | lb2.ti.mimas.net |
 |  | eth1 → 192.168.20.21 | Proxy a Django | 80, 443 | — |
 |  | eth2 → 192.168.50.21 | Administración | 22 | admin.lb2.ti.mimas.net |
-| **Django App-1** | eth0 → 192.168.20.10 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app1.ti.mimas.net |
+| **Django App-1 / VM appDjango1** | eth0 → 192.168.20.10 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app1.ti.mimas.net |
 |  | eth1 → 192.168.30.30 | Redis / MariaDB acceso | 3306, 6379 | — |
 |  | eth2 → 192.168.40.30 | CephFS archivos | 2049, 7480 | — |
 |  | eth3 → 192.168.50.30 | Administración | 22 | admin.app1.ti.mimas.net |
-| **Django App-2** | eth0 → 192.168.20.11 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app2.ti.mimas.net |
+| **Django App-2 / VM appDjango2** | eth0 → 192.168.20.11 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app2.ti.mimas.net |
 |  | eth1 → 192.168.30.31 | Redis / MariaDB acceso | 3306, 6379 | — |
 |  | eth2 → 192.168.40.31 | CephFS archivos | 2049, 7480 | — |
 |  | eth3 → 192.168.50.31 | Administración | 22 | admin.app2.ti.mimas.net |
-| **Django App-3** | eth0 → 192.168.20.12 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app3.ti.mimas.net |
+| **Django App-3 / VM appDjango3** | eth0 → 192.168.20.12 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app3.ti.mimas.net |
 |  | eth1 → 192.168.30.32 | Redis / MariaDB acceso | 3306, 6379 | — |
 |  | eth2 → 192.168.40.32 | CephFS archivos | 2049, 7480 | — |
 |  | eth3 → 192.168.50.32 | Administración | 22 | admin.app3.ti.mimas.net |
@@ -77,9 +77,9 @@
 | Nombre red | Bridge KVM | Segmento | Gateway | DHCP | Modo libvirt | Nodos conectados |
 |------------|-----------|----------|---------|------|--------------|-----------------|
 | **red-principal** | br0 | 192.168.10.0/24 | 192.168.10.1 | No (IPs fijas) | bridge / NAT | KVM Hosts, DNS-1, DNS-2, NGINX LB-1/2 |
-| **red-backend** | br1 | 192.168.20.0/24 | 192.168.20.1 | No (IPs fijas) | bridge | NGINX LB-1, Django App-1/2/3 |
-| **red-db-redis** | br2 | 192.168.30.0/24 | 192.168.30.1 | No (IPs fijas) | bridge | Django App-1/2/3, Redis-1/2, MaxScale, MariaDB-1/2/3 |
-| **red-storage** | br3 | 192.168.40.0/24 | 192.168.40.1 | No (IPs fijas) | bridge | Django App-1/2/3, MariaDB-1/2/3, Ceph Gateway, Storage-1/2/3 |
+| **red-backend** | br1 | 192.168.20.0/24 | 192.168.20.1 | No (IPs fijas) | bridge | NGINX LB-1, appDjango1/appDjango2/appDjango3 |
+| **red-db-redis** | br2 | 192.168.30.0/24 | 192.168.30.1 | No (IPs fijas) | bridge | appDjango1/appDjango2/appDjango3, Redis-1/2, MaxScale, MariaDB-1/2/3 |
+| **red-storage** | br3 | 192.168.40.0/24 | 192.168.40.1 | No (IPs fijas) | bridge | appDjango1/appDjango2/appDjango3, MariaDB-1/2/3, Ceph Gateway, Storage-1/2/3 |
 | **red-admin** | br4 | 192.168.50.0/24 | 192.168.50.1 | No (IPs fijas) | bridge | Todos los nodos (interfaz de gestión), Bastion, Monitorización |
 
 **Notas:**
@@ -95,7 +95,7 @@
 1. Configurar las redes base de KVM y validar conectividad entre segmentos.
 2. Implementar los servidores DNS y comprobar resolucion de `mimas.net` y `ti.mimas.net`.
 3. Desplegar los balanceadores NGINX y verificar acceso por la red principal y backend.
-4. Preparar los nodos Django backend y validar la aplicacion en cada servidor.
+4. Preparar los nodos Django backend (`appDjango1`, `appDjango2`, `appDjango3`) y validar la aplicacion en cada servidor.
 5. Implementar Redis para sesiones y comprobar replicacion o failover.
 6. Montar MariaDB con MaxScale y validar acceso, replicacion y balanceo.
 7. Desplegar la capa de almacenamiento Ceph y probar montaje y acceso desde Django y MariaDB.
