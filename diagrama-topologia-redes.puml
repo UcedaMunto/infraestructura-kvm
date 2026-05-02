@@ -145,9 +145,6 @@ db1 --> db2 : Galera 4567/4568/4444
 db2 --> db3 : Galera 4567/4568/4444
 db3 --> db1 : Galera 4567/4568/4444
 
-app1 --> cephgw : CephFS / media
-app2 --> cephgw : CephFS / media
-app3 --> cephgw : CephFS / media
 db1 --> cephgw : backups
 db2 --> cephgw : backups
 db3 --> cephgw : backups

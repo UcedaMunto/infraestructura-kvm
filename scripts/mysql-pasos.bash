@@ -394,6 +394,16 @@ block_5_validate_maxscale() {
   ssh_cmd "$MAXSCALE_IP" "sudo maxctrl list listeners"
 }
 
+block_6_validate_django_from_db_segment() {
+  require_key
+
+  local ip
+  for ip in "${DB_NODES[@]}"; do
+    echo "=== DB segment -> Django desde $ip ==="
+    ssh_cmd "$ip" "for app in 192.168.30.30 192.168.30.31 192.168.30.32; do code=\$(curl -sS --max-time 5 -H 'Host: app1.ti.mimas.net' -o /dev/null -w '%{http_code}' http://\$app/ || true); if [[ \"\$code\" != \"000\" ]]; then echo \"[OK] \$app reachable (codigo \$code)\"; else echo \"[ERROR] \$app sin respuesta\"; exit 1; fi; done"
+  done
+}
+
 usage() {
   cat <<'EOF'
 Uso: bash scripts/mysql-pasos.bash <bloque>
@@ -408,7 +418,8 @@ Bloques disponibles:
   3       Bootstrap manual rapido (solo referencia)
   4       Validar estado wsrep en db1, db2, db3
   5       Validar estado MaxScale (servers/services/listeners)
-  all     Ejecutar 0,1,2,2.01,2.1,2.2,4,5
+  6       Validar acceso DB segment -> Django (IPs 192.168.30.x)
+  all     Ejecutar 0,1,2,2.01,2.1,2.2,4,5,6
 EOF
 }
 
@@ -424,6 +435,7 @@ main() {
     3) block_3_manual_bootstrap ;;
     4) block_4_validate ;;
     5) block_5_validate_maxscale ;;
+    6) block_6_validate_django_from_db_segment ;;
     all)
       block_0_preflight
       block_1_install
@@ -433,6 +445,7 @@ main() {
       block_22_maxscale
       block_4_validate
       block_5_validate_maxscale
+      block_6_validate_django_from_db_segment
       ;;
     *)
       usage

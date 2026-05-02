@@ -300,6 +300,26 @@ done
 EOF2
 }
 
+block_5_validate_host_domains() {
+  local domain
+  for domain in django1.ti.mimas.net django2.ti.mimas.net django3.ti.mimas.net; do
+    echo "=== Host -> $domain ==="
+    getent hosts "$domain" || {
+      echo "[ERROR] El resolver del host no resuelve $domain"
+      return 1
+    }
+
+    local code
+    code="$(curl -sS --max-time 8 -o /dev/null -w '%{http_code}' "http://$domain/" || true)"
+    if [[ "$code" == "000" ]]; then
+      echo "[ERROR] $domain no responde desde el host"
+      return 1
+    fi
+
+    echo "[OK] $domain responde desde el host (codigo $code)"
+  done
+}
+
 usage() {
   cat <<'EOF2'
 Uso: bash configuraciones-nginx-dominio.sh <bloque>
@@ -310,6 +330,7 @@ Bloques disponibles:
   2      Instalar y configurar Nginx LB en LB1/LB2
   3      Validar Nginx y acceso por dominios via Host header
   4      Mostrar comandos MANUALES para publicar dominios en DNS
+  5      Validar acceso real desde el host usando dominios resueltos
   all    Ejecutar 1,2,3
 EOF2
 }
@@ -322,6 +343,7 @@ main() {
     2) block_2_configure_nginx_lb ;;
     3) block_3_validate_lb ;;
     4) block_4_manual_dns_commands ;;
+    5) block_5_validate_host_domains ;;
     all)
       block_1_create_or_start_lbs
       block_0_preflight_lbs

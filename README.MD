@@ -28,16 +28,10 @@
 |  | eth2 → 192.168.50.21 | Administración | 22 | admin.lb2.ti.mimas.net |
 | **Django App-1 / VM appDjango1** | eth0 → 192.168.20.10 | Aplicación Django/Gunicorn | 80, 22 | app1.ti.mimas.net |
 |  | eth1 → 192.168.30.30 | Redis / MariaDB acceso | 3306, 6379 | — |
-|  | eth2 → 192.168.40.30 | CephFS archivos | 2049, 7480 | — |
-|  | eth3 → 192.168.50.30 | Administración | 22 | admin.app1.ti.mimas.net |
 | **Django App-2 / VM appDjango2** | eth0 → 192.168.20.11 | Aplicación Django/Gunicorn | 80, 22 | app2.ti.mimas.net |
 |  | eth1 → 192.168.30.31 | Redis / MariaDB acceso | 3306, 6379 | — |
-|  | eth2 → 192.168.40.31 | CephFS archivos | 2049, 7480 | — |
-|  | eth3 → 192.168.50.31 | Administración | 22 | admin.app2.ti.mimas.net |
 | **Django App-3 / VM appDjango3** | eth0 → 192.168.20.12 | Aplicación Django/Gunicorn | 80, 22 | app3.ti.mimas.net |
 |  | eth1 → 192.168.30.32 | Redis / MariaDB acceso | 3306, 6379 | — |
-|  | eth2 → 192.168.40.32 | CephFS archivos | 2049, 7480 | — |
-|  | eth3 → 192.168.50.32 | Administración | 22 | admin.app3.ti.mimas.net |
 | **Redis-1** | eth0 → 192.168.30.10 | Cluster sesiones | 6379, 16379, 22 | redis1.ti.mimas.net |
 |  | eth1 → 192.168.50.40 | Administración | 22 | admin.redis1.ti.mimas.net |
 | **Redis-2** | eth0 → 192.168.30.11 | Réplica / failover | 6379, 16379, 22 | redis2.ti.mimas.net |
@@ -79,7 +73,7 @@
 | **red-principal** | br0 | 192.168.10.0/24 | 192.168.10.1 | No (IPs fijas) | bridge / NAT | KVM Hosts, DNS-1, DNS-2, NGINX LB-1/2 |
 | **red-backend** | br1 | 192.168.20.0/24 | 192.168.20.1 | No (IPs fijas) | bridge | NGINX LB-1, appDjango1/appDjango2/appDjango3 |
 | **red-db-redis** | br2 | 192.168.30.0/24 | 192.168.30.1 | No (IPs fijas) | bridge | appDjango1/appDjango2/appDjango3, Redis-1/2, MaxScale, MariaDB-1/2/3 |
-| **red-storage** | br3 | 192.168.40.0/24 | 192.168.40.1 | No (IPs fijas) | bridge | appDjango1/appDjango2/appDjango3, MariaDB-1/2/3, Ceph Gateway, Storage-1/2/3 |
+| **red-storage** | br3 | 192.168.40.0/24 | 192.168.40.1 | No (IPs fijas) | bridge | MariaDB-1/2/3, Ceph Gateway, Storage-1/2/3 |
 | **red-admin** | br4 | 192.168.50.0/24 | 192.168.50.1 | No (IPs fijas) | bridge | Todos los nodos (interfaz de gestión), Bastion, Monitorización |
 
 **Notas:**
@@ -87,6 +81,7 @@
 - `red-principal` usa modo NAT en entornos de laboratorio para salida a internet.
 - `red-backend` y `red-db-redis` también usan NAT en laboratorio para permitir `apt-get` durante el aprovisionamiento inicial. En producción estas redes serían bridge aisladas sin NAT.
 - `red-storage` y `red-admin` son redes internas aisladas (modo `bridge` sin NAT).
+- En la automatización actual, las VMs Django se crean con 2 interfaces: `red-backend` y `red-db-redis`. Las interfaces de storage/admin quedan para una fase posterior.
 - El Bastion (192.168.50.2) es el único punto de acceso SSH externo a `red-admin`.
 
 ---

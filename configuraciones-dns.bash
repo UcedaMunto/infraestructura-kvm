@@ -39,6 +39,33 @@ ssh_cmd() {
   ssh -i "$KEY" $SSH_OPTS "${VM_USER}@${ip}" "$@"
 }
 
+prepare_dns_package_manager() {
+  local ip="$1"
+  ssh_cmd "$ip" "sudo bash -s" <<'REMOTE'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+cloud-init status --wait >/dev/null 2>&1 || true
+
+systemctl stop apt-daily.service apt-daily-upgrade.service apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+pkill -9 apt apt-get unattended-upgrade 2>/dev/null || true
+rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
+rm -f /var/lib/dpkg/updates/*
+dpkg --configure -a || true
+apt-get -y -f install || true
+REMOTE
+}
+
+block_0_preflight_dns() {
+  wait_for_ssh_node "$DNS1_IP"
+  wait_for_ssh_node "$DNS2_IP"
+
+  echo "[INFO] Preflight cloud-init/apt en $DNS1_IP"
+  prepare_dns_package_manager "$DNS1_IP"
+  echo "[INFO] Preflight cloud-init/apt en $DNS2_IP"
+  prepare_dns_package_manager "$DNS2_IP"
+}
+
 wait_for_ssh_node() {
   local ip="$1"
   local attempt=1
@@ -147,6 +174,8 @@ block_2_create_dns_vms() {
 }
 
 block_3_config_dns_principal() {
+  block_0_preflight_dns
+
   local serial
   serial="$(date +%Y%m%d%H)"
 
@@ -212,6 +241,8 @@ REMOTE
 }
 
 block_4_config_dns_delegado() {
+  block_0_preflight_dns
+
   local serial
   serial="$(date +%Y%m%d%H)"
 
@@ -299,34 +330,53 @@ block_5_validate_dns() {
   dig +short @"$DNS2_IP" google.com A
 }
 
+block_6_validate_host_to_dns() {
+  echo "=== Host -> DNS reachability ==="
+  dig +time=2 +tries=1 @"$DNS1_IP" ns1.ti.mimas.net A
+  dig +time=2 +tries=1 @"$DNS2_IP" django1.ti.mimas.net A
+
+  echo "=== Host resolver ==="
+  if getent hosts django1.ti.mimas.net >/dev/null 2>&1; then
+    getent hosts django1.ti.mimas.net
+  else
+    echo "[WARN] El resolver del host no usa actualmente la zona interna; el DNS interno si responde por consulta directa."
+  fi
+}
+
 usage() {
   cat <<'EOF2'
 Uso: bash configuraciones-dns.bash <bloque>
 
 Bloques disponibles:
+  0      Preflight DNS nodes (SSH + cloud-init + saneo apt/dpkg)
   1      Re-crear redes libvirt (NAT/bridge)
   2      Crear/levantar dns-principal y dns-delegado
   3      Configurar BIND en DNS principal (mimas.net + delegacion)
   4      Configurar BIND en DNS delegado (ti.mimas.net + registros)
   5      Validar DNS interno y forwarders
-  all    Ejecutar 1,2,3,4,5
+  6      Validar acceso del host a DNS y uso del resolver local
+  all    Ejecutar 1,2,0,3,4,5,6
 EOF2
 }
 
 main() {
   local block="${1:-}"
   case "$block" in
+    0) block_0_preflight_dns ;;
     1) block_1_networks ;;
     2) block_2_create_dns_vms ;;
     3) block_3_config_dns_principal ;;
     4) block_4_config_dns_delegado ;;
     5) block_5_validate_dns ;;
+    6) block_6_validate_host_to_dns ;;
     all)
       block_1_networks
       block_2_create_dns_vms
+      block_0_preflight_dns
       block_3_config_dns_principal
       block_4_config_dns_delegado
       block_5_validate_dns
+      block_6_validate_host_to_dns
       ;;
     *)
       usage

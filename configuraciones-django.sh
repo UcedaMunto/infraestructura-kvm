@@ -258,7 +258,7 @@ DATABASES = {
         "USER": ENV.get("MYSQL_USER", "appuser"),
         "PASSWORD": ENV.get("MYSQL_PASSWORD", "app-pass-2620"),
         "HOST": ENV.get("MYSQL_HOST", "192.168.30.20"),
-        "PORT": ENV.get("MYSQL_PORT", "3306"),
+        "PORT": ENV.get("MYSQL_PORT", "4008"),
         "OPTIONS": {"init_command": "SET sql_mode='STRICT_TRANS_TABLES'"},
     }
 }
@@ -275,7 +275,23 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 EOF2
 
-chown '$APP_USER':'$APP_GROUP' '$PROJECT_DIR/.env' '$PROJECT_DIR/$DJANGO_PROJECT_NAME/settings.py'
+cat >'$PROJECT_DIR/$DJANGO_PROJECT_NAME/urls.py' <<'EOF2'
+from django.contrib import admin
+from django.http import JsonResponse
+from django.urls import path
+
+
+def health_root(_request):
+  return JsonResponse({"status": "ok", "service": "django", "app": "ti.mimas.net"})
+
+
+urlpatterns = [
+  path("", health_root),
+  path("admin/", admin.site.urls),
+]
+EOF2
+
+chown '$APP_USER':'$APP_GROUP' '$PROJECT_DIR/.env' '$PROJECT_DIR/$DJANGO_PROJECT_NAME/settings.py' '$PROJECT_DIR/$DJANGO_PROJECT_NAME/urls.py'
 chmod 640 '$PROJECT_DIR/.env'
 
 attempt=1
@@ -344,6 +360,32 @@ block_6_validate_apps() {
   done
 }
 
+block_7_validate_db_from_apps() {
+  wait_for_all_apps_ssh
+
+  local ip
+  for ip in "${APP_NODES[@]}"; do
+    echo "=== Django -> MySQL desde $ip ==="
+    ssh_cmd "$ip" "sudo -u '$APP_USER' '$VENV_DIR/bin/python' - <<'PY'
+import MySQLdb
+
+conn = MySQLdb.connect(
+    host='${DB_HOST}',
+    port=${DB_PORT},
+    user='${DB_USER}',
+    passwd='${DB_PASSWORD}',
+    db='${DB_NAME}',
+    connect_timeout=5,
+)
+cur = conn.cursor()
+cur.execute('select @@hostname, @@port')
+row = cur.fetchone()
+print(f'[OK] conectado a {row[0]}:{row[1]} via MaxScale ${DB_HOST}:${DB_PORT}')
+conn.close()
+PY"
+  done
+}
+
 usage() {
   cat <<'EOF2'
 Uso: bash configuraciones-django.sh <bloque>
@@ -356,7 +398,8 @@ Bloques disponibles:
   4      Configurar .env/settings y migraciones
   5      Configurar Gunicorn systemd en puerto 80
   6      Validar estado final de app nodes
-  all    Ejecutar 0,2,3,4,5,6
+  7      Validar conectividad Django -> MySQL/MaxScale
+  all    Ejecutar 0,2,3,4,5,6,7
 
 Nota:
   Este script YA NO crea VMs Django. Debes crearlas manualmente antes del bloque 2.
@@ -373,6 +416,7 @@ main() {
     4) block_4_config_django_settings ;;
     5) block_5_configure_gunicorn_80 ;;
     6) block_6_validate_apps ;;
+    7) block_7_validate_db_from_apps ;;
     all)
       block_0_preflight_apps
       block_2_wait_ssh_apps
@@ -380,6 +424,7 @@ main() {
       block_4_config_django_settings
       block_5_configure_gunicorn_80
       block_6_validate_apps
+      block_7_validate_db_from_apps
       ;;
     *)
       usage
