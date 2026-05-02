@@ -27,8 +27,10 @@ VM_NAMES=(
   app1 app2 app3
   mariadb-1 mariadb-2 mariadb-3
   maxscale-1
-  redis1 redis2
+  redis-1 redis-2 redis1 redis2
+  ceph-admin cephfs-1
   ceph-gateway storage1 storage2 storage3
+  dns-1
   bastion monitor
 )
 
@@ -96,6 +98,7 @@ ssh_stop_services_best_effort() {
     192.168.10.10 192.168.10.11
     192.168.10.20 192.168.10.21
     192.168.20.10 192.168.20.11 192.168.20.12
+    192.168.30.10
     192.168.30.20 192.168.30.21 192.168.30.22 192.168.30.23
   )
 
@@ -109,6 +112,7 @@ systemctl stop django-gunicorn.service 2>/dev/null || true
 systemctl stop bind9 2>/dev/null || true
 systemctl stop maxscale 2>/dev/null || true
 systemctl stop mariadb 2>/dev/null || true
+systemctl stop redis-server 2>/dev/null || true
 REMOTE
   done
 }
@@ -185,6 +189,14 @@ block_4_cleanup_artifacts() {
 
   log "Limpiando archivos de comandos/logs generados del proyecto"
   rm -f "$BASE_DIR"/logs/*.txt 2>/dev/null || true
+
+  log "Limpiando discos huerfanos conocidos"
+  sudo rm -f \
+    "$IMG_DIR"/vm-bridge-1.qcow2 \
+    "$IMG_DIR"/vm-bridge-2.qcow2 \
+    "$IMG_DIR"/cloud-init.iso \
+    "$IMG_DIR"/dns-1.qcow2 \
+    2>/dev/null || true
 
   ok "Paso 4 completado"
 }
