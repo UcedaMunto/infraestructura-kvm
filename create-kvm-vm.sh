@@ -199,7 +199,7 @@ Notas:
 - --logs-dir define el directorio para el archivo generado si no envias --comandos-file.
 
 Ejemplo 2 interfaces (comentado):
-# --ifaces "enp1s0,192.168.5.42/24,192.168.5.1,8.8.8.8,8.8.4.4;enp7s0,10.10.10.12/24,,10.10.10.1"
+# --ifaces "enp1s0,192.168.5.42/24,192.168.5.1,8.8.8.8,8.8.4.4;enp2s0,10.10.10.12/24,,10.10.10.1"
 
 - --libvirt-nets permite adjuntar una o varias redes libvirt separadas por ';'.
   Ejemplo: --libvirt-nets "ceph-net;storage-net"

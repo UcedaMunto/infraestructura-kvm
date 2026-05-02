@@ -1,0 +1,187 @@
+@startuml
+title Infraestructura HA/HC Django sobre KVM - Topologia de redes e interfaces
+
+top to bottom direction
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontColor #1E1E1E
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #4A4A4A
+  FontColor #1E1E1E
+}
+skinparam node {
+  BackgroundColor #FFFFFF
+  BorderColor #2F6D9E
+  FontColor #1E1E1E
+}
+skinparam cloud {
+  BackgroundColor #FFFFFF
+  BorderColor #4A4A4A
+  FontColor #1E1E1E
+}
+skinparam note {
+  BackgroundColor #F7F7F7
+  BorderColor #7A7A7A
+  FontColor #1E1E1E
+}
+
+skinparam package<<principal>> {
+  BackgroundColor #E8F4FF
+  BorderColor #2F6D9E
+  FontColor #1E1E1E
+}
+skinparam package<<backend>> {
+  BackgroundColor #EAFBEA
+  BorderColor #2E8B57
+  FontColor #1E1E1E
+}
+skinparam package<<dbredis>> {
+  BackgroundColor #FFF4E6
+  BorderColor #C77700
+  FontColor #1E1E1E
+}
+skinparam package<<storage>> {
+  BackgroundColor #F3EEFF
+  BorderColor #6B4FA3
+  FontColor #1E1E1E
+}
+skinparam package<<admin>> {
+  BackgroundColor #FFECEE
+  BorderColor #B23A48
+  FontColor #1E1E1E
+}
+
+cloud "Internet / WAN" as internet
+
+rectangle "KVM Host-1\neth0 -> WAN/LAN fisica\nbr0 -> red-principal\nbr1 -> red-backend\nbr2 -> red-db-redis\nbr3 -> red-storage\nbr4 -> red-admin" as host1
+rectangle "KVM Host-2\nMisma estructura de bridges" as host2
+rectangle "KVM Host-3\nMisma estructura de bridges" as host3
+
+internet -- host1
+internet -- host2
+internet -- host3
+
+package "red-principal\n192.168.10.0/24\nGateway: 192.168.10.1\nUso: DNS y acceso publico\nLibvirt: red-principal" as red_principal <<principal>> {
+  node "DNS Principal\nns1.mimas.net\neth0: 192.168.10.10\neth1: 192.168.50.10" as dns1
+  node "DNS Delegado TI\nns1.ti.mimas.net\neth0: 192.168.10.11\neth1: 192.168.50.11" as dns2
+  node "NGINX LB-1\nwww.ti.mimas.net\neth0: 192.168.10.20\neth1: 192.168.20.20\neth2: 192.168.50.20" as lb1
+  node "NGINX LB-2\nlb2.ti.mimas.net\neth0: 192.168.10.21\neth1: 192.168.20.21\neth2: 192.168.50.21" as lb2
+}
+
+package "red-backend\n192.168.20.0/24\nGateway: 192.168.20.1\nUso: aplicaciones Django\nLibvirt: red-backend" as red_backend <<backend>> {
+  node "Django App-1\napp1.ti.mimas.net\neth0: 192.168.20.10\neth1: 192.168.30.30\neth2: 192.168.40.30\neth3: 192.168.50.30" as app1
+  node "Django App-2\napp2.ti.mimas.net\neth0: 192.168.20.11\neth1: 192.168.30.31\neth2: 192.168.40.31\neth3: 192.168.50.31" as app2
+  node "Django App-3\napp3.ti.mimas.net\neth0: 192.168.20.12\neth1: 192.168.30.32\neth2: 192.168.40.32\neth3: 192.168.50.32" as app3
+}
+
+package "red-db-redis\n192.168.30.0/24\nGateway: 192.168.30.1\nUso: MariaDB, MaxScale, Redis\nLibvirt: red-db-redis" as red_db <<dbredis>> {
+  node "Redis-1\nredis1.ti.mimas.net\neth0: 192.168.30.10\neth1: 192.168.50.40" as redis1
+  node "Redis-2\nredis2.ti.mimas.net\neth0: 192.168.30.11\neth1: 192.168.50.41" as redis2
+  node "MaxScale\ndb.ti.mimas.net\neth0: 192.168.30.20\neth1: 192.168.50.50" as maxscale
+  node "MariaDB-1 Primary\ndb1.ti.mimas.net\neth0: 192.168.30.21\neth1: 192.168.40.21" as db1
+  node "MariaDB-2 Replica\ndb2.ti.mimas.net\neth0: 192.168.30.22\neth1: 192.168.40.22" as db2
+  node "MariaDB-3 Replica\ndb3.ti.mimas.net\neth0: 192.168.30.23\neth1: 192.168.40.23" as db3
+}
+
+package "red-storage\n192.168.40.0/24\nGateway: 192.168.40.1\nUso: CephFS, backups y storage\nLibvirt: red-storage" as red_storage <<storage>> {
+  node "Ceph Gateway / VIP\nstorage.ti.mimas.net\neth0: 192.168.40.20\neth1: 192.168.50.60" as cephgw
+  node "Storage Node-1\nstorage1.ti.mimas.net\neth0: 192.168.40.10" as st1
+  node "Storage Node-2\nstorage2.ti.mimas.net\neth0: 192.168.40.11" as st2
+  node "Storage Node-3\nstorage3.ti.mimas.net\neth0: 192.168.40.12" as st3
+}
+
+package "red-admin\n192.168.50.0/24\nGateway: 192.168.50.1\nUso: SSH, monitoreo y gestion\nLibvirt: red-admin" as red_admin <<admin>> {
+  node "Bastion Server\nbastion.mimas.net\neth0: 192.168.50.2" as bastion
+  node "Monitorizacion\nmonitor.mimas.net\neth0: 192.168.50.3" as monitor
+}
+
+host1 .. red_principal : br0
+host1 .. red_backend : br1
+host1 .. red_db : br2
+host1 .. red_storage : br3
+host1 .. red_admin : br4
+
+host2 .. red_principal
+host2 .. red_backend
+host2 .. red_db
+host2 .. red_storage
+host2 .. red_admin
+
+host3 .. red_principal
+host3 .. red_backend
+host3 .. red_db
+host3 .. red_storage
+host3 .. red_admin
+
+internet --> lb1 : trafico web
+internet --> lb2 : contingencia
+internet --> dns1 : consultas DNS
+internet --> dns2 : consultas DNS delegadas
+
+lb1 --> app1 : eth1 192.168.20.20 -> 192.168.20.10
+lb1 --> app2 : eth1 192.168.20.20 -> 192.168.20.11
+lb1 --> app3 : eth1 192.168.20.20 -> 192.168.20.12
+lb2 --> app1 : eth1 192.168.20.21 -> 192.168.20.10
+lb2 --> app2 : eth1 192.168.20.21 -> 192.168.20.11
+lb2 --> app3 : eth1 192.168.20.21 -> 192.168.20.12
+
+app1 --> maxscale : DB 192.168.30.30 -> 192.168.30.20
+app2 --> maxscale : DB 192.168.30.31 -> 192.168.30.20
+app3 --> maxscale : DB 192.168.30.32 -> 192.168.30.20
+
+app1 --> redis1 : sesion/cache
+app2 --> redis1 : sesion/cache
+app3 --> redis1 : sesion/cache
+app1 --> redis2 : replica/failover
+app2 --> redis2 : replica/failover
+app3 --> redis2 : replica/failover
+
+maxscale --> db1 : 3306
+maxscale --> db2 : 3306
+maxscale --> db3 : 3306
+db1 --> db2 : Galera 4567/4568/4444
+db2 --> db3 : Galera 4567/4568/4444
+db3 --> db1 : Galera 4567/4568/4444
+
+app1 --> cephgw : CephFS / media
+app2 --> cephgw : CephFS / media
+app3 --> cephgw : CephFS / media
+db1 --> cephgw : backups
+db2 --> cephgw : backups
+db3 --> cephgw : backups
+cephgw --> st1 : almacenamiento
+cephgw --> st2 : almacenamiento
+cephgw --> st3 : almacenamiento
+
+bastion --> dns1 : SSH admin
+bastion --> dns2 : SSH admin
+bastion --> lb1 : SSH admin
+bastion --> lb2 : SSH admin
+bastion --> app1 : SSH admin
+bastion --> app2 : SSH admin
+bastion --> app3 : SSH admin
+bastion --> redis1 : SSH admin
+bastion --> redis2 : SSH admin
+bastion --> maxscale : SSH admin
+bastion --> cephgw : SSH admin
+
+monitor --> lb1 : metricas
+monitor --> lb2 : metricas
+monitor --> app1 : metricas
+monitor --> app2 : metricas
+monitor --> app3 : metricas
+monitor --> maxscale : metricas
+monitor --> db1 : metricas
+monitor --> db2 : metricas
+monitor --> db3 : metricas
+monitor --> cephgw : metricas
+
+note bottom of red_admin
+El README solo explicita dos interfaces para MariaDB-1/2/3.
+No se agregaron IPs administrativas de MariaDB en este diagrama
+para mantener fidelidad estricta al README entregado.
+end note
+
+@enduml

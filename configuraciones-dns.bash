@@ -61,6 +61,40 @@ sudo virsh net-define /tmp/red-admin.xml
 sudo virsh net-start red-admin
 sudo virsh net-autostart red-admin
 
+
+'''
+    Correcion de las redes PARA NAT
+'''
+
+# 1) Backup de red actual
+sudo virsh net-dumpxml red-db-redis > /tmp/red-db-redis.backup.xml
+
+# 2) Redefinir con NAT
+cat > /tmp/red-db-redis.xml << 'EOF'
+<network>
+  <name>red-db-redis</name>
+  <forward mode='nat'>
+    <nat>
+      <port start='1024' end='65535'/>
+    </nat>
+  </forward>
+  <bridge name='red-db-redis' stp='on' delay='0'/>
+  <ip address='192.168.30.1' netmask='255.255.255.0'/>
+</network>
+EOF
+
+# 3) Aplicar
+sudo virsh net-destroy red-db-redis 2>/dev/null || true
+sudo virsh net-undefine red-db-redis
+sudo virsh net-define /tmp/red-db-redis.xml
+sudo virsh net-start red-db-redis
+sudo virsh net-autostart red-db-redis
+
+# 4) Verificar NAT para 192.168.30.0/24
+sudo virsh net-dumpxml red-db-redis | grep -n forward
+sudo iptables -t nat -S | grep 192.168.30.0/24 || true
+sudo nft list ruleset | grep 192.168.30.0/24 || true
+
 # ── Verificar todas ───────────────────────────────────────────────────────────
 sudo virsh net-list --all
 
@@ -79,12 +113,12 @@ bash /home/uceda/Documents/cluster-ceph/proyecto-manual-infraestructura/create-k
   --system-disk 20 \
   --data-disk 0 \
   --libvirt-nets "red-principal;red-admin" \
-  --ifaces "enp1s0,192.168.10.10/24,192.168.10.1,1.1.1.1,8.8.8.8;enp7s0,192.168.50.10/24,,1.1.1.1,8.8.8.8" \
+  --ifaces "enp1s0,192.168.10.10/24,192.168.10.1,1.1.1.1,8.8.8.8;enp2s0,192.168.50.10/24,,1.1.1.1,8.8.8.8" \
   --extra-hosts "192.168.10.10 ns1.mimas.net;192.168.10.11 ns1.ti.mimas.net" \
 
-ssh -i /home/uceda/Documents/cluster-ceph/proyecto-manual-infraestructura/ssh-keys/id_rsa \
-  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  userinfrakv@192.168.10.10
+KEY="/home/uceda/Documents/cluster-ceph/proyecto-manual-infraestructura/ssh-keys/id_rsa"
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+ssh -i "$KEY" $SSH_OPTS userinfrakv@192.168.10.10
 
 
 sudo apt install bind9
@@ -174,7 +208,7 @@ bash /home/uceda/Documents/cluster-ceph/proyecto-manual-infraestructura/create-k
   --system-disk 20 \
   --data-disk 0 \
   --libvirt-nets "red-principal;red-admin" \
-  --ifaces "enp1s0,192.168.10.11/24,192.168.10.1,1.1.1.1,8.8.8.8;enp7s0,192.168.50.11/24,,1.1.1.1,8.8.8.8" \
+  --ifaces "enp1s0,192.168.10.11/24,192.168.10.1,1.1.1.1,8.8.8.8;enp2s0,192.168.50.11/24,,1.1.1.1,8.8.8.8" \
   --extra-hosts "192.168.10.10 ns1.mimas.net;192.168.10.11 ns1.ti.mimas.net"
 
 # CONFIGURAMOS EL DNS PRINCIPAL '''
@@ -255,5 +289,53 @@ sudo systemctl status bind9 --no-pager
 # comprobar resolucion desde el host
 # Consulta al DNS principal
 dig @192.168.10.10 mimas.net +short
+dig @192.168.10.10 ns1.ti.mimas.net +short
+dig @192.168.10.11 db.ti.mimas.net +short
+
+
+'''
+    CORRECCION 1:CONFIGURANDO EL DNS  DEBE TENER FORDWARDERS PARA RESOLVER INTERNET TAMBIEN
+'''
+KEY="/home/uceda/Documents/cluster-ceph/proyecto-manual-infraestructura/ssh-keys/id_rsa"
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# Aplica la misma configuracion en DNS principal y DNS delegado
+for DNS_IP in 192.168.10.10 192.168.10.11; do
+  echo "[INFO] Aplicando forwarders en $DNS_IP"
+  ssh -i "$KEY" $SSH_OPTS userinfrakv@"$DNS_IP" "sudo bash -s" <<'REMOTE'
+set -e
+
+sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.bak.$(date +%F-%H%M%S)
+
+sudo tee /etc/bind/named.conf.options >/dev/null <<'EOF'
+options {
+  directory "/var/cache/bind";
+
+  recursion yes;
+  allow-recursion { any; };
+  allow-query { any; };
+
+  # Si falla resolucion local/autoritativa, reenvia a DNS publicos
+  forward first;
+  forwarders {
+    8.8.8.8;
+    1.1.1.1;
+  };
+
+  dnssec-validation auto;
+  listen-on { any; };
+  listen-on-v6 { any; };
+};
+EOF
+
+sudo named-checkconf
+sudo systemctl restart bind9
+sudo systemctl is-active bind9
+REMOTE
+done
+
+# Validaciones desde host
+dig @192.168.10.10 google.com +short
+dig @192.168.10.11 google.com +short
 dig @192.168.10.10 ns1.ti.mimas.net +short
 dig @192.168.10.11 db.ti.mimas.net +short
