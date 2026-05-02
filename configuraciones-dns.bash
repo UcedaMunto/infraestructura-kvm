@@ -147,7 +147,10 @@ block_2_create_dns_vms() {
 }
 
 block_3_config_dns_principal() {
-  ssh_cmd "$DNS1_IP" "sudo bash -s" <<'REMOTE'
+  local serial
+  serial="$(date +%Y%m%d%H)"
+
+  ssh_cmd "$DNS1_IP" "SERIAL=$serial sudo -E bash -s" <<'REMOTE'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -176,12 +179,18 @@ zone "mimas.net" {
     type master;
     file "/etc/bind/db.mimas.net";
 };
+
+zone "ti.mimas.net" {
+  type forward;
+  forward only;
+  forwarders { 192.168.10.11; };
+};
 EOF2
 
-sudo tee /etc/bind/db.mimas.net >/dev/null <<'EOF2'
-$TTL 86400
+sudo tee /etc/bind/db.mimas.net >/dev/null <<EOF2
+\$TTL 86400
 @   IN  SOA ns1.mimas.net. admin.mimas.net. (
-        2026050205
+        ${SERIAL}
         3600
         1800
         1209600
@@ -203,7 +212,10 @@ REMOTE
 }
 
 block_4_config_dns_delegado() {
-  ssh_cmd "$DNS2_IP" "sudo bash -s" <<'REMOTE'
+  local serial
+  serial="$(date +%Y%m%d%H)"
+
+  ssh_cmd "$DNS2_IP" "SERIAL=$serial sudo -E bash -s" <<'REMOTE'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -234,10 +246,10 @@ zone "ti.mimas.net" {
 };
 EOF2
 
-sudo tee /etc/bind/db.ti.mimas.net >/dev/null <<'EOF2'
-$TTL 86400
+sudo tee /etc/bind/db.ti.mimas.net >/dev/null <<EOF2
+\$TTL 86400
 @   IN  SOA ns1.ti.mimas.net. admin.ti.mimas.net. (
-        2026050205
+        ${SERIAL}
         3600
         1800
         1209600

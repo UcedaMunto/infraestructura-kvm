@@ -22,7 +22,7 @@ WAIT_SSH_SLEEP="${WAIT_SSH_SLEEP:-5}"
 APP_NODES=(192.168.20.10 192.168.20.11 192.168.20.12)
 
 DB_HOST="${DB_HOST:-192.168.30.20}"
-DB_PORT="${DB_PORT:-3306}"
+DB_PORT="${DB_PORT:-4008}"
 DB_NAME="${DB_NAME:-appdb}"
 DB_USER="${DB_USER:-appuser}"
 DB_PASSWORD="${DB_PASSWORD:-app-pass-2620}"
@@ -85,6 +85,33 @@ run_script_on_apps() {
   done
 }
 
+prepare_app_package_manager() {
+  local ip="$1"
+  ssh_cmd "$ip" "sudo bash -s" <<'REMOTE'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+cloud-init status --wait >/dev/null 2>&1 || true
+
+systemctl stop apt-daily.service apt-daily-upgrade.service apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+pkill -9 apt apt-get unattended-upgrade 2>/dev/null || true
+rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
+rm -f /var/lib/dpkg/updates/*
+dpkg --configure -a || true
+apt-get -y -f install || true
+REMOTE
+}
+
+block_0_preflight_apps() {
+  wait_for_all_apps_ssh
+
+  local ip
+  for ip in "${APP_NODES[@]}"; do
+    echo "[INFO] Preflight cloud-init/apt en $ip"
+    prepare_app_package_manager "$ip"
+  done
+}
+
 block_1_delete_django_vms() {
   local vm
   for vm in appDjango1 appDjango2 appDjango3 app1 app2 app3; do
@@ -112,13 +139,13 @@ block_2_wait_ssh_apps() {
 }
 
 block_3_install_runtime() {
-  wait_for_all_apps_ssh
+  block_0_preflight_apps
 
   run_script_on_apps <<REMOTE
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y python3-venv python3-pip python3-dev build-essential libmariadb-dev pkg-config git curl
+apt-get install -y --no-install-recommends python3-venv python3-pip python3-dev build-essential libmariadb-dev pkg-config git curl
 
 # Las apps NO usan nginx local.
 systemctl disable --now nginx 2>/dev/null || true
@@ -251,7 +278,23 @@ EOF2
 chown '$APP_USER':'$APP_GROUP' '$PROJECT_DIR/.env' '$PROJECT_DIR/$DJANGO_PROJECT_NAME/settings.py'
 chmod 640 '$PROJECT_DIR/.env'
 
-sudo -u '$APP_USER' bash -lc "set -euo pipefail; cd '$PROJECT_DIR'; '$VENV_DIR/bin/python' manage.py migrate --noinput; '$VENV_DIR/bin/python' manage.py check"
+attempt=1
+max_attempts=8
+while (( attempt <= max_attempts )); do
+  if sudo -u '$APP_USER' bash -lc "set -euo pipefail; cd '$PROJECT_DIR'; '$VENV_DIR/bin/python' manage.py migrate --noinput; '$VENV_DIR/bin/python' manage.py check"; then
+    echo "[OK] Django migrate/check correcto"
+    break
+  fi
+
+  if (( attempt == max_attempts )); then
+    echo "[ERROR] Django migrate/check fallo tras \${max_attempts} intentos"
+    exit 1
+  fi
+
+  echo "[WARN] Fallo transitorio DB/MaxScale (intento \${attempt}/\${max_attempts}), reintentando..."
+  sleep 6
+  attempt=\$((attempt + 1))
+done
 REMOTE
 }
 
@@ -296,7 +339,7 @@ block_6_validate_apps() {
     ssh_cmd "$ip" "hostname -f || hostname"
     ssh_cmd "$ip" "systemctl is-active $SERVICE_NAME"
     ssh_cmd "$ip" "sudo ss -lntp | grep ':80' || true"
-    ssh_cmd "$ip" "curl -fsS --max-time 5 http://127.0.0.1/ >/dev/null && echo '[OK] HTTP local responde'"
+    ssh_cmd "$ip" "code=\$(curl -sS --max-time 5 -H 'Host: app1.ti.mimas.net' -o /dev/null -w '%{http_code}' http://127.0.0.1/ || true); if [[ \"\$code\" != \"000\" ]]; then echo \"[OK] HTTP local responde (codigo \$code)\"; else echo '[ERROR] HTTP local sin respuesta'; exit 1; fi"
     ssh_cmd "$ip" "sudo -u '$APP_USER' bash -lc 'cd $PROJECT_DIR && $VENV_DIR/bin/python manage.py check'"
   done
 }
@@ -306,13 +349,14 @@ usage() {
 Uso: bash configuraciones-django.sh <bloque>
 
 Bloques disponibles:
+  0      Preflight app nodes (SSH + cloud-init + saneo apt/dpkg)
   1      BORRAR VMs Django y discos (destructivo)
   2      Esperar SSH en app nodes (creadas manualmente)
   3      Instalar runtime Python + proyecto Django (sin nginx)
   4      Configurar .env/settings y migraciones
   5      Configurar Gunicorn systemd en puerto 80
   6      Validar estado final de app nodes
-  all    Ejecutar 2,3,4,5,6
+  all    Ejecutar 0,2,3,4,5,6
 
 Nota:
   Este script YA NO crea VMs Django. Debes crearlas manualmente antes del bloque 2.
@@ -322,6 +366,7 @@ EOF2
 main() {
   local block="${1:-}"
   case "$block" in
+    0) block_0_preflight_apps ;;
     1) block_1_delete_django_vms ;;
     2) block_2_wait_ssh_apps ;;
     3) block_3_install_runtime ;;
@@ -329,6 +374,7 @@ main() {
     5) block_5_configure_gunicorn_80 ;;
     6) block_6_validate_apps ;;
     all)
+      block_0_preflight_apps
       block_2_wait_ssh_apps
       block_3_install_runtime
       block_4_config_django_settings

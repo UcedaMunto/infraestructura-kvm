@@ -26,15 +26,15 @@
 | **NGINX LB-2** | eth0 → 192.168.10.21 | Balanceador contingencia | 80, 443, 22, VRRP 112 | lb2.ti.mimas.net |
 |  | eth1 → 192.168.20.21 | Proxy a Django | 80, 443 | — |
 |  | eth2 → 192.168.50.21 | Administración | 22 | admin.lb2.ti.mimas.net |
-| **Django App-1 / VM appDjango1** | eth0 → 192.168.20.10 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app1.ti.mimas.net |
+| **Django App-1 / VM appDjango1** | eth0 → 192.168.20.10 | Aplicación Django/Gunicorn | 80, 22 | app1.ti.mimas.net |
 |  | eth1 → 192.168.30.30 | Redis / MariaDB acceso | 3306, 6379 | — |
 |  | eth2 → 192.168.40.30 | CephFS archivos | 2049, 7480 | — |
 |  | eth3 → 192.168.50.30 | Administración | 22 | admin.app1.ti.mimas.net |
-| **Django App-2 / VM appDjango2** | eth0 → 192.168.20.11 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app2.ti.mimas.net |
+| **Django App-2 / VM appDjango2** | eth0 → 192.168.20.11 | Aplicación Django/Gunicorn | 80, 22 | app2.ti.mimas.net |
 |  | eth1 → 192.168.30.31 | Redis / MariaDB acceso | 3306, 6379 | — |
 |  | eth2 → 192.168.40.31 | CephFS archivos | 2049, 7480 | — |
 |  | eth3 → 192.168.50.31 | Administración | 22 | admin.app2.ti.mimas.net |
-| **Django App-3 / VM appDjango3** | eth0 → 192.168.20.12 | Aplicación Django/Gunicorn | 8000, 8001, 22 | app3.ti.mimas.net |
+| **Django App-3 / VM appDjango3** | eth0 → 192.168.20.12 | Aplicación Django/Gunicorn | 80, 22 | app3.ti.mimas.net |
 |  | eth1 → 192.168.30.32 | Redis / MariaDB acceso | 3306, 6379 | — |
 |  | eth2 → 192.168.40.32 | CephFS archivos | 2049, 7480 | — |
 |  | eth3 → 192.168.50.32 | Administración | 22 | admin.app3.ti.mimas.net |
@@ -42,7 +42,7 @@
 |  | eth1 → 192.168.50.40 | Administración | 22 | admin.redis1.ti.mimas.net |
 | **Redis-2** | eth0 → 192.168.30.11 | Réplica / failover | 6379, 16379, 22 | redis2.ti.mimas.net |
 |  | eth1 → 192.168.50.41 | Administración | 22 | admin.redis2.ti.mimas.net |
-| **MaxScale** | eth0 → 192.168.30.20 | Balanceador DB | 3306, 8989, 22 | db.ti.mimas.net |
+| **MaxScale** | eth0 → 192.168.30.20 | Balanceador DB | 3306 (read), 4008 (read-write), 8989, 22 | db.ti.mimas.net |
 |  | eth1 → 192.168.50.50 | Administración | 22 | admin.db.ti.mimas.net |
 | **MariaDB-1 Primary** | eth0 → 192.168.30.21 | Base de datos principal | 3306, 4444, 4567, 4568, 22 | db1.ti.mimas.net |
 |  | eth1 → 192.168.40.21 | Backups / storage | CephFS | — |
@@ -84,8 +84,9 @@
 
 **Notas:**
 - Todas las redes usan IPs estáticas asignadas por cloud-init (sin DHCP).
-- `red-principal` puede usar modo NAT en entornos de laboratorio para salida a internet.
-- `red-backend`, `red-db-redis`, `red-storage` y `red-admin` son redes internas aisladas (modo `bridge` sin NAT).
+- `red-principal` usa modo NAT en entornos de laboratorio para salida a internet.
+- `red-backend` y `red-db-redis` también usan NAT en laboratorio para permitir `apt-get` durante el aprovisionamiento inicial. En producción estas redes serían bridge aisladas sin NAT.
+- `red-storage` y `red-admin` son redes internas aisladas (modo `bridge` sin NAT).
 - El Bastion (192.168.50.2) es el único punto de acceso SSH externo a `red-admin`.
 
 ---

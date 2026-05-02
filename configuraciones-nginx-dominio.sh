@@ -74,6 +74,33 @@ wait_for_all_lb_ssh() {
   done
 }
 
+prepare_lb_package_manager() {
+  local ip="$1"
+  ssh_cmd "$ip" "sudo bash -s" <<'REMOTE'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+cloud-init status --wait >/dev/null 2>&1 || true
+
+systemctl stop apt-daily.service apt-daily-upgrade.service apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+pkill -9 apt apt-get unattended-upgrade 2>/dev/null || true
+rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
+rm -f /var/lib/dpkg/updates/*
+dpkg --configure -a || true
+apt-get -y -f install || true
+REMOTE
+}
+
+block_0_preflight_lbs() {
+  wait_for_all_lb_ssh
+
+  local ip
+  for ip in "${LB_NODES[@]}"; do
+    echo "[INFO] Preflight cloud-init/apt en $ip"
+    prepare_lb_package_manager "$ip"
+  done
+}
+
 ensure_vm_running() {
   local vm="$1"
   if sudo virsh dominfo "$vm" >/dev/null 2>&1; then
@@ -122,7 +149,7 @@ block_1_create_or_start_lbs() {
 }
 
 block_2_configure_nginx_lb() {
-  wait_for_all_lb_ssh
+  block_0_preflight_lbs
 
   local lb_ip
   for lb_ip in "${LB_NODES[@]}"; do
@@ -184,13 +211,18 @@ block_3_validate_lb() {
     ssh_cmd "$lb_ip" "systemctl is-active nginx"
     ssh_cmd "$lb_ip" "curl -fsS --max-time 5 http://127.0.0.1/nginx-health"
 
-    ssh_cmd "$lb_ip" "curl -fsS --max-time 5 http://${APP1_IP}:80 >/dev/null && echo '[OK] app1 backend reachable'"
-    ssh_cmd "$lb_ip" "curl -fsS --max-time 5 http://${APP2_IP}:80 >/dev/null && echo '[OK] app2 backend reachable'"
-    ssh_cmd "$lb_ip" "curl -fsS --max-time 5 http://${APP3_IP}:80 >/dev/null && echo '[OK] app3 backend reachable'"
+    ssh_cmd "$lb_ip" "code=\$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' http://${APP1_IP}:80 || true); if [[ \"\$code\" != \"000\" ]]; then echo \"[OK] app1 backend reachable (codigo \$code)\"; else echo '[ERROR] app1 backend sin respuesta'; exit 1; fi"
+    ssh_cmd "$lb_ip" "code=\$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' http://${APP2_IP}:80 || true); if [[ \"\$code\" != \"000\" ]]; then echo \"[OK] app2 backend reachable (codigo \$code)\"; else echo '[ERROR] app2 backend sin respuesta'; exit 1; fi"
+    ssh_cmd "$lb_ip" "code=\$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' http://${APP3_IP}:80 || true); if [[ \"\$code\" != \"000\" ]]; then echo \"[OK] app3 backend reachable (codigo \$code)\"; else echo '[ERROR] app3 backend sin respuesta'; exit 1; fi"
 
-    curl -fsS --max-time 8 -H "Host: django1.ti.mimas.net" "http://$lb_ip/" >/dev/null && echo "[OK] django1 via $lb_ip"
-    curl -fsS --max-time 8 -H "Host: django2.ti.mimas.net" "http://$lb_ip/" >/dev/null && echo "[OK] django2 via $lb_ip"
-    curl -fsS --max-time 8 -H "Host: django3.ti.mimas.net" "http://$lb_ip/" >/dev/null && echo "[OK] django3 via $lb_ip"
+    code="$(curl -sS --max-time 8 -H "Host: django1.ti.mimas.net" -o /dev/null -w '%{http_code}' "http://$lb_ip/" || true)"
+    [[ "$code" != "000" ]] && echo "[OK] django1 via $lb_ip (codigo $code)" || { echo "[ERROR] django1 via $lb_ip sin respuesta"; exit 1; }
+
+    code="$(curl -sS --max-time 8 -H "Host: django2.ti.mimas.net" -o /dev/null -w '%{http_code}' "http://$lb_ip/" || true)"
+    [[ "$code" != "000" ]] && echo "[OK] django2 via $lb_ip (codigo $code)" || { echo "[ERROR] django2 via $lb_ip sin respuesta"; exit 1; }
+
+    code="$(curl -sS --max-time 8 -H "Host: django3.ti.mimas.net" -o /dev/null -w '%{http_code}' "http://$lb_ip/" || true)"
+    [[ "$code" != "000" ]] && echo "[OK] django3 via $lb_ip (codigo $code)" || { echo "[ERROR] django3 via $lb_ip sin respuesta"; exit 1; }
   done
 }
 
@@ -273,6 +305,7 @@ usage() {
 Uso: bash configuraciones-nginx-dominio.sh <bloque>
 
 Bloques disponibles:
+  0      Preflight LB nodes (SSH + cloud-init + saneo apt/dpkg)
   1      Crear/levantar VMs LB1 y LB2
   2      Instalar y configurar Nginx LB en LB1/LB2
   3      Validar Nginx y acceso por dominios via Host header
@@ -284,12 +317,14 @@ EOF2
 main() {
   local block="${1:-}"
   case "$block" in
+    0) block_0_preflight_lbs ;;
     1) block_1_create_or_start_lbs ;;
     2) block_2_configure_nginx_lb ;;
     3) block_3_validate_lb ;;
     4) block_4_manual_dns_commands ;;
     all)
       block_1_create_or_start_lbs
+      block_0_preflight_lbs
       block_2_configure_nginx_lb
       block_3_validate_lb
       ;;

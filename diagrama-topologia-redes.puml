@@ -71,9 +71,9 @@ package "red-principal\n192.168.10.0/24\nGateway: 192.168.10.1\nUso: DNS y acces
 }
 
 package "red-backend\n192.168.20.0/24\nGateway: 192.168.20.1\nUso: aplicaciones Django\nLibvirt: red-backend" as red_backend <<backend>> {
-  node "Django App-1\nVM: appDjango1\napp1.ti.mimas.net\neth0: 192.168.20.10\neth1: 192.168.30.30\neth2: 192.168.40.30\neth3: 192.168.50.30" as app1
-  node "Django App-2\nVM: appDjango2\napp2.ti.mimas.net\neth0: 192.168.20.11\neth1: 192.168.30.31\neth2: 192.168.40.31\neth3: 192.168.50.31" as app2
-  node "Django App-3\nVM: appDjango3\napp3.ti.mimas.net\neth0: 192.168.20.12\neth1: 192.168.30.32\neth2: 192.168.40.32\neth3: 192.168.50.32" as app3
+  node "Django App-1\nVM: appDjango1\napp1.ti.mimas.net\neth0: 192.168.20.10\neth1: 192.168.30.30" as app1
+  node "Django App-2\nVM: appDjango2\napp2.ti.mimas.net\neth0: 192.168.20.11\neth1: 192.168.30.31" as app2
+  node "Django App-3\nVM: appDjango3\napp3.ti.mimas.net\neth0: 192.168.20.12\neth1: 192.168.30.32" as app3
 }
 
 package "red-db-redis\n192.168.30.0/24\nGateway: 192.168.30.1\nUso: MariaDB, MaxScale, Redis\nLibvirt: red-db-redis" as red_db <<dbredis>> {

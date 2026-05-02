@@ -9,14 +9,70 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CREATE_VM_SCRIPT="$BASE_DIR/create-kvm-vm.sh"
+KEY="${KEY_OVERRIDE:-$BASE_DIR/ssh-keys/id_rsa}"
+SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8}"
 
 VM_USER="${VM_USER:-userinfrakv}"
 VM_PASSWORD="${VM_PASSWORD:-passphrase2620-07}"
+WAIT_SSH_RETRIES="${WAIT_SSH_RETRIES:-80}"
+WAIT_SSH_SLEEP="${WAIT_SSH_SLEEP:-5}"
+MYSQL_STACK_NODES=(192.168.30.21 192.168.30.22 192.168.30.23 192.168.30.20)
 
 if [[ ! -x "$CREATE_VM_SCRIPT" ]]; then
   echo "[ERROR] No se encontro script ejecutable: $CREATE_VM_SCRIPT"
   exit 1
 fi
+
+if [[ ! -r "$KEY" ]]; then
+  echo "[ERROR] No se puede leer la clave SSH: $KEY"
+  echo "[INFO] Ajusta KEY_OVERRIDE con una ruta valida y vuelve a ejecutar."
+  exit 1
+fi
+
+ssh_cmd() {
+  local ip="$1"
+  shift
+  ssh -i "$KEY" $SSH_OPTS "${VM_USER}@${ip}" "$@"
+}
+
+wait_for_ssh_node() {
+  local ip="$1"
+  local attempt=1
+
+  while (( attempt <= WAIT_SSH_RETRIES )); do
+    if ssh -i "$KEY" $SSH_OPTS "${VM_USER}@${ip}" "echo ready" >/dev/null 2>&1; then
+      echo "[OK] SSH listo en $ip"
+      return 0
+    fi
+
+    echo "[INFO] Esperando SSH en $ip (intento ${attempt}/${WAIT_SSH_RETRIES})"
+    sleep "$WAIT_SSH_SLEEP"
+    attempt=$((attempt + 1))
+  done
+
+  echo "[ERROR] SSH no estuvo listo en $ip"
+  return 1
+}
+
+wait_for_stack_ready() {
+  local ip
+  for ip in "${MYSQL_STACK_NODES[@]}"; do
+    wait_for_ssh_node "$ip"
+    ssh_cmd "$ip" "sudo bash -s" <<'REMOTE'
+set -euo pipefail
+
+# Espera cloud-init para reducir carreras con apt/dpkg.
+cloud-init status --wait >/dev/null 2>&1 || true
+
+systemctl stop apt-daily.service apt-daily-upgrade.service apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+pkill -9 apt apt-get unattended-upgrade 2>/dev/null || true
+rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
+rm -f /var/lib/dpkg/updates/*
+dpkg --configure -a || true
+apt-get -y -f install || true
+REMOTE
+  done
+}
 
 write_net_xml() {
   local name="$1"
@@ -142,6 +198,9 @@ block_2_create_mysql_stack() {
 
   echo "[OK] Stack MariaDB/MaxScale solicitado"
   sudo virsh list --all | grep -E 'mariadb-|maxscale-1' || true
+
+  echo "[INFO] Validando SSH y saneando cloud-init/apt en stack DB"
+  wait_for_stack_ready
 }
 
 usage() {
@@ -150,7 +209,7 @@ Uso: bash configuraciones-mysql.sh <bloque>
 
 Bloques disponibles:
   1      Re-crear redes libvirt con NAT/bridge correctos
-  2      Crear VMs MariaDB + MaxScale
+  2      Crear VMs MariaDB + MaxScale + esperar SSH estable
   all    Ejecutar 1,2
 EOF2
 }

@@ -21,6 +21,11 @@ SSH_USER="${SSH_USER:-userinfrakv}"
 DB_NODES=(192.168.30.21 192.168.30.22 192.168.30.23)
 DB1_IP="${DB1_IP:-192.168.30.21}"
 MAXSCALE_IP="${MAXSCALE_IP:-192.168.30.20}"
+APP_DB_NAME="${APP_DB_NAME:-appdb}"
+APP_DB_USER="${APP_DB_USER:-appuser}"
+APP_DB_PASSWORD="${APP_DB_PASSWORD:-app-pass-2620}"
+WAIT_SSH_RETRIES="${WAIT_SSH_RETRIES:-80}"
+WAIT_SSH_SLEEP="${WAIT_SSH_SLEEP:-5}"
 
 require_key() {
   if [[ ! -r "$KEY" ]]; then
@@ -36,8 +41,61 @@ ssh_cmd() {
   ssh -i "$KEY" $SSH_OPTS "${SSH_USER}@${ip}" "$@"
 }
 
+wait_for_ssh_node() {
+  local ip="$1"
+  local attempt=1
+
+  while (( attempt <= WAIT_SSH_RETRIES )); do
+    if ssh -i "$KEY" $SSH_OPTS "${SSH_USER}@${ip}" "echo ready" >/dev/null 2>&1; then
+      echo "[OK] SSH listo en $ip"
+      return 0
+    fi
+
+    echo "[INFO] Esperando SSH en $ip (intento ${attempt}/${WAIT_SSH_RETRIES})"
+    sleep "$WAIT_SSH_SLEEP"
+    attempt=$((attempt + 1))
+  done
+
+  echo "[ERROR] SSH no estuvo listo en $ip"
+  return 1
+}
+
+prepare_node_package_manager() {
+  local ip="$1"
+  wait_for_ssh_node "$ip"
+
+  ssh_cmd "$ip" "sudo bash -s" <<'REMOTE'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+cloud-init status --wait >/dev/null 2>&1 || true
+
+systemctl stop apt-daily.service apt-daily-upgrade.service apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+pkill -9 apt apt-get unattended-upgrade 2>/dev/null || true
+rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock
+rm -f /var/lib/dpkg/updates/*
+dpkg --configure -a || true
+apt-get -y -f install || true
+REMOTE
+}
+
+prepare_nodes_package_manager() {
+  local ip
+  for ip in "$@"; do
+    echo "[INFO] Preflight apt/dpkg en $ip"
+    prepare_node_package_manager "$ip"
+  done
+}
+
+block_0_preflight() {
+  require_key
+  prepare_nodes_package_manager "${DB_NODES[@]}" "$MAXSCALE_IP"
+}
+
 block_1_install() {
   require_key
+  prepare_nodes_package_manager "${DB_NODES[@]}"
+
   for ip in "${DB_NODES[@]}"; do
     echo "[INFO] Instalando MariaDB/Galera en $ip"
     ssh_cmd "$ip" "sudo bash -s" <<'REMOTE'
@@ -95,6 +153,7 @@ REMOTE
 
 block_201_bootstrap() {
   require_key
+  prepare_nodes_package_manager "${DB_NODES[@]}"
 
   for ip in "${DB_NODES[@]}"; do
     ssh_cmd "$ip" "sudo systemctl stop mariadb || true"
@@ -165,9 +224,11 @@ block_201_bootstrap() {
 
 block_21_users() {
   require_key
-  ssh_cmd "$DB1_IP" "sudo bash -s" <<'REMOTE'
+  prepare_nodes_package_manager "$DB1_IP"
+
+  ssh_cmd "$DB1_IP" "APP_DB_NAME=$APP_DB_NAME APP_DB_USER=$APP_DB_USER APP_DB_PASSWORD=$APP_DB_PASSWORD sudo -E bash -s" <<'REMOTE'
 set -euo pipefail
-mariadb <<'SQL'
+mariadb <<SQL
 CREATE USER IF NOT EXISTS 'maxscale'@'%' IDENTIFIED BY 'icc115';
 CREATE USER IF NOT EXISTS 'maxscale'@'192.168.30.20' IDENTIFIED BY 'icc115';
 CREATE USER IF NOT EXISTS 'maxscale'@'db.ti.mimas.net' IDENTIFIED BY 'icc115';
@@ -216,6 +277,15 @@ GRANT REPLICATION CLIENT, FILE, SUPER, RELOAD, PROCESS, SHOW DATABASES, EVENT, S
 GRANT REPLICATION CLIENT, FILE, SUPER, RELOAD, PROCESS, SHOW DATABASES, EVENT, SLAVE MONITOR ON *.* TO 'maxscale_monitor'@'192.168.30.20';
 GRANT REPLICATION CLIENT, FILE, SUPER, RELOAD, PROCESS, SHOW DATABASES, EVENT, SLAVE MONITOR ON *.* TO 'maxscale_monitor'@'db.ti.mimas.net';
 
+CREATE DATABASE IF NOT EXISTS ${APP_DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${APP_DB_USER}'@'%' IDENTIFIED BY '${APP_DB_PASSWORD}';
+ALTER USER '${APP_DB_USER}'@'%' IDENTIFIED BY '${APP_DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON ${APP_DB_NAME}.* TO '${APP_DB_USER}'@'%';
+
+CREATE USER IF NOT EXISTS '${APP_DB_USER}'@'192.168.30.%' IDENTIFIED BY '${APP_DB_PASSWORD}';
+ALTER USER '${APP_DB_USER}'@'192.168.30.%' IDENTIFIED BY '${APP_DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON ${APP_DB_NAME}.* TO '${APP_DB_USER}'@'192.168.30.%';
+
 FLUSH PRIVILEGES;
 SQL
 REMOTE
@@ -223,6 +293,8 @@ REMOTE
 
 block_22_maxscale() {
   require_key
+  prepare_nodes_package_manager "$MAXSCALE_IP"
+
   ssh_cmd "$MAXSCALE_IP" "sudo bash -s" <<'REMOTE'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -327,6 +399,7 @@ usage() {
 Uso: bash scripts/mysql-pasos.bash <bloque>
 
 Bloques disponibles:
+  0       Preflight (espera SSH, cloud-init y sanea apt/dpkg)
   1       Instalar MariaDB/Galera en db1, db2, db3
   2       Escribir /etc/mysql/mariadb.conf.d/60-galera.cnf en db1, db2, db3
   2.01    Bootstrap robusto de Galera (detecta nodo por grastate.dat)
@@ -335,13 +408,14 @@ Bloques disponibles:
   3       Bootstrap manual rapido (solo referencia)
   4       Validar estado wsrep en db1, db2, db3
   5       Validar estado MaxScale (servers/services/listeners)
-  all     Ejecutar 1,2,2.01,2.1,2.2,4,5
+  all     Ejecutar 0,1,2,2.01,2.1,2.2,4,5
 EOF
 }
 
 main() {
   local block="${1:-}"
   case "$block" in
+    0) block_0_preflight ;;
     1) block_1_install ;;
     2) block_2_config ;;
     2.01) block_201_bootstrap ;;
@@ -351,6 +425,7 @@ main() {
     4) block_4_validate ;;
     5) block_5_validate_maxscale ;;
     all)
+      block_0_preflight
       block_1_install
       block_2_config
       block_201_bootstrap
