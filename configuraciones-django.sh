@@ -5,8 +5,9 @@ set -euo pipefail
 # Uso:
 #   bash configuraciones-django.sh 1   # BORRAR VMs Django (destructivo)
 #   bash configuraciones-django.sh 2   # Esperar SSH en app nodes
-#   bash configuraciones-django.sh 3   # Instalar runtime Python + proyecto
-#   bash configuraciones-django.sh 4   # Configurar settings.py/.env y migraciones
+#   bash configuraciones-django.sh 3   # Instalar runtime Python + dependencias
+#   bash configuraciones-django.sh 8   # Copiar proyecto local (./django) a app nodes
+#   bash configuraciones-django.sh 4   # Crear .env por nodo y ejecutar migraciones
 #   bash configuraciones-django.sh 5   # Configurar Gunicorn systemd en puerto 80
 #   bash configuraciones-django.sh 6   # Validar servicios HTTP
 #   bash configuraciones-django.sh all # Ejecuta 2,3,4,5,6
@@ -17,6 +18,7 @@ SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/nul
 SSH_USER="${SSH_USER:-userinfrakv}"
 VM_PASSWORD="${VM_PASSWORD:-passphrase2620-07}"
 CREATE_VM_SCRIPT="${CREATE_VM_SCRIPT:-$BASE_DIR/create-kvm-vm.sh}"
+LOCAL_DJANGO_DIR="${LOCAL_DJANGO_DIR:-$BASE_DIR/django}"
 
 WAIT_SSH_RETRIES="${WAIT_SSH_RETRIES:-80}"
 WAIT_SSH_SLEEP="${WAIT_SSH_SLEEP:-5}"
@@ -102,6 +104,26 @@ rm -f /var/lib/dpkg/updates/*
 dpkg --configure -a || true
 apt-get -y -f install || true
 REMOTE
+}
+
+copy_local_project_to_node() {
+  local ip="$1"
+
+  if [[ ! -f "$LOCAL_DJANGO_DIR/manage.py" ]]; then
+    echo "[ERROR] No existe proyecto Django local en: $LOCAL_DJANGO_DIR"
+    echo "[ERROR] Se esperaba: $LOCAL_DJANGO_DIR/manage.py"
+    exit 1
+  fi
+
+  echo "[INFO] Copiando proyecto local desde $LOCAL_DJANGO_DIR hacia $ip:$PROJECT_DIR"
+  tar \
+    --exclude='.git' \
+    --exclude='__pycache__' \
+    --exclude='*.pyc' \
+    --exclude='.venv*' \
+    --exclude='db.sqlite3' \
+    -czf - -C "$LOCAL_DJANGO_DIR" . \
+    | ssh_cmd "$ip" "sudo mkdir -p '$PROJECT_DIR' && sudo tar xzf - -C '$PROJECT_DIR' && sudo chown -R '$APP_USER':'$APP_GROUP' '$PROJECT_DIR'"
 }
 
 block_create_vms() {
@@ -207,139 +229,58 @@ if [[ ! -d '$VENV_DIR' ]]; then
   sudo -u '$APP_USER' python3 -m venv '$VENV_DIR'
 fi
 sudo -u '$APP_USER' '$VENV_DIR/bin/pip' install --upgrade pip wheel
-sudo -u '$APP_USER' '$VENV_DIR/bin/pip' install django gunicorn mysqlclient redis python-dotenv
-
-if [[ ! -f '$PROJECT_DIR/manage.py' ]]; then
-  sudo -u '$APP_USER' mkdir -p '$PROJECT_DIR'
-  sudo -u '$APP_USER' '$VENV_DIR/bin/django-admin' startproject '$DJANGO_PROJECT_NAME' '$PROJECT_DIR'
-fi
+sudo -u '$APP_USER' '$VENV_DIR/bin/pip' install gunicorn mysqlclient redis python-dotenv
 REMOTE
+}
+
+block_8_sync_project() {
+  wait_for_all_apps_ssh
+
+  local ip
+  for ip in "${APP_NODES[@]}"; do
+    copy_local_project_to_node "$ip"
+    ssh_cmd "$ip" "if [[ ! -f '$PROJECT_DIR/requirements.txt' ]]; then echo '[ERROR] No existe requirements.txt en $PROJECT_DIR'; exit 1; fi"
+    ssh_cmd "$ip" "sudo -u '$APP_USER' '$VENV_DIR/bin/pip' install -r '$PROJECT_DIR/requirements.txt'"
+    ssh_cmd "$ip" "sudo -u '$APP_USER' '$VENV_DIR/bin/pip' install gunicorn mysqlclient redis python-dotenv"
+  done
 }
 
 block_4_config_django_settings() {
   wait_for_all_apps_ssh
 
-  run_script_on_apps <<REMOTE
+  local ip
+  for ip in "${APP_NODES[@]}"; do
+    ssh_cmd "$ip" "sudo bash -s" <<REMOTE
 set -euo pipefail
-cat >'$PROJECT_DIR/.env' <<'EOF2'
+
+if [[ ! -f '$PROJECT_DIR/manage.py' ]]; then
+  echo "[ERROR] No existe proyecto Django en $PROJECT_DIR"
+  exit 1
+fi
+
+cat >'$PROJECT_DIR/.env' <<EOF2
 DJANGO_DEBUG=False
 DJANGO_SECRET_KEY=replace-this-with-real-secret
 DJANGO_ALLOWED_HOSTS=django1.ti.mimas.net,django2.ti.mimas.net,django3.ti.mimas.net,lb1.ti.mimas.net,lb2.ti.mimas.net,app1.ti.mimas.net,app2.ti.mimas.net,app3.ti.mimas.net,192.168.10.20,192.168.10.21,192.168.20.10,192.168.20.11,192.168.20.12
+DJANGO_COOP_POLICY=unsafe-none
+
+SERVIDOR=$ip
+servidor=$ip
+SERVER=$ip
+
+MYSQL_ENABLED=1
 MYSQL_DATABASE=$DB_NAME
 MYSQL_USER=$DB_USER
 MYSQL_PASSWORD=$DB_PASSWORD
 MYSQL_HOST=$DB_HOST
 MYSQL_PORT=$DB_PORT
+
+REDIS_ENABLED=1
 REDIS_HOST=$REDIS_HOST
 REDIS_PORT=$REDIS_PORT
 EOF2
 
-cat >'$PROJECT_DIR/$DJANGO_PROJECT_NAME/settings.py' <<'EOF2'
-import os
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-
-def read_env(path):
-    data = {}
-    if not os.path.exists(path):
-        return data
-    with open(path, "r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            data[k.strip()] = v.strip()
-    return data
-
-
-ENV = read_env(BASE_DIR / ".env")
-
-SECRET_KEY = ENV.get("DJANGO_SECRET_KEY", "replace-this-with-real-secret")
-DEBUG = ENV.get("DJANGO_DEBUG", "False").lower() == "true"
-ALLOWED_HOSTS = [h.strip() for h in ENV.get("DJANGO_ALLOWED_HOSTS", "").split(",") if h.strip()]
-
-INSTALLED_APPS = [
-    "django.contrib.admin",
-    "django.contrib.auth",
-    "django.contrib.contenttypes",
-    "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
-]
-
-MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
-]
-
-ROOT_URLCONF = "config.urls"
-
-TEMPLATES = [
-    {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
-        "APP_DIRS": True,
-        "OPTIONS": {
-            "context_processors": [
-                "django.template.context_processors.request",
-                "django.contrib.auth.context_processors.auth",
-                "django.contrib.messages.context_processors.messages",
-            ],
-        },
-    },
-]
-
-WSGI_APPLICATION = "config.wsgi.application"
-
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.mysql",
-        "NAME": ENV.get("MYSQL_DATABASE", "appdb"),
-        "USER": ENV.get("MYSQL_USER", "appuser"),
-        "PASSWORD": ENV.get("MYSQL_PASSWORD", "app-pass-2620"),
-        "HOST": ENV.get("MYSQL_HOST", "192.168.30.20"),
-        "PORT": ENV.get("MYSQL_PORT", "4008"),
-        "OPTIONS": {"init_command": "SET sql_mode='STRICT_TRANS_TABLES'"},
-    }
-}
-
-REDIS_HOST = ENV.get("REDIS_HOST", "192.168.30.10")
-REDIS_PORT = ENV.get("REDIS_PORT", "6379")
-
-LANGUAGE_CODE = "en-us"
-TIME_ZONE = "America/El_Salvador"
-USE_I18N = True
-USE_TZ = True
-
-STATIC_URL = "static/"
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-EOF2
-
-cat >'$PROJECT_DIR/$DJANGO_PROJECT_NAME/urls.py' <<'EOF2'
-from django.contrib import admin
-from django.http import JsonResponse
-from django.urls import path
-
-
-def health_root(_request):
-  return JsonResponse({"status": "ok", "service": "django", "app": "ti.mimas.net"})
-
-
-urlpatterns = [
-  path("", health_root),
-  path("admin/", admin.site.urls),
-]
-EOF2
-
-chown '$APP_USER':'$APP_GROUP' '$PROJECT_DIR/.env' '$PROJECT_DIR/$DJANGO_PROJECT_NAME/settings.py' '$PROJECT_DIR/$DJANGO_PROJECT_NAME/urls.py'
+chown '$APP_USER':'$APP_GROUP' '$PROJECT_DIR/.env'
 chmod 640 '$PROJECT_DIR/.env'
 
 attempt=1
@@ -360,6 +301,7 @@ while (( attempt <= max_attempts )); do
   attempt=\$((attempt + 1))
 done
 REMOTE
+  done
 }
 
 block_5_configure_gunicorn_80() {
@@ -442,12 +384,13 @@ Bloques disponibles:
   0      Preflight app nodes (SSH + cloud-init + saneo apt/dpkg)
   1      BORRAR VMs Django y discos (destructivo)
   2      Esperar SSH en app nodes (creadas manualmente)
-  3      Instalar runtime Python + proyecto Django (sin nginx)
-  4      Configurar .env/settings y migraciones
+  3      Instalar runtime Python + dependencias Django (sin nginx)
+  8      Copiar proyecto local (./django) a app nodes + pip -r requirements
+  4      Crear .env por nodo y ejecutar migraciones
   5      Configurar Gunicorn systemd en puerto 80
   6      Validar estado final de app nodes
   7      Validar conectividad Django -> MySQL/MaxScale
-  all    Ejecutar 0,2,3,4,5,6,7
+  all    Ejecutar 0,2,3,8,4,5,6,7
 
 Nota:
   create-vms  Crear VMs Django (appDjango1/2/3) automaticamente
@@ -462,6 +405,7 @@ main() {
     1) block_1_delete_django_vms ;;
     2) block_2_wait_ssh_apps ;;
     3) block_3_install_runtime ;;
+    8) block_8_sync_project ;;
     4) block_4_config_django_settings ;;
     5) block_5_configure_gunicorn_80 ;;
     6) block_6_validate_apps ;;
@@ -471,6 +415,7 @@ main() {
       block_0_preflight_apps
       block_2_wait_ssh_apps
       block_3_install_runtime
+      block_8_sync_project
       block_4_config_django_settings
       block_5_configure_gunicorn_80
       block_6_validate_apps

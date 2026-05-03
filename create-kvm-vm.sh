@@ -322,9 +322,13 @@ fi
 
 ensure_shared_ssh_keys
 
+# Disco principal de la VM (SO) en el storage de libvirt.
 SYSTEM_DISK="$IMG_DIR/${VM_NAME}.qcow2"
+# Disco secundario opcional para datos persistentes de la VM.
 DATA_DISK="$IMG_DIR/${VM_NAME}-data.qcow2"
+# Archivo temporal cloud-init con usuarios, llaves, paquetes y runcmd.
 CLOUD_FILE="/tmp/user-data-${VM_NAME}.yaml"
+# Archivo temporal cloud-init para netplan (interfaces, IP, gateway, DNS).
 NETWORK_FILE="/tmp/network-config-${VM_NAME}.yaml"
 
 write_cloud_init "$CLOUD_FILE" "$VM_HOSTNAME" "$VM_USER" "$VM_PASSWORD" "$IFACES_SPEC" "$EXTRA_HOSTS" "$FIRST_BOOT_SCRIPT" "$PRIMARY_MAC"
@@ -365,6 +369,25 @@ if ! sudo virsh dominfo "$VM_NAME" >/dev/null 2>&1; then
       sudo qemu-img create -f qcow2 "$DATA_DISK" "${DATA_DISK_GB}G"
     fi
 
+    # Ejemplo del comando real:
+    # sudo virt-install --name appDjango1 --ram 4096 --vcpus 2 \
+    #   --disk path=/var/lib/libvirt/images/appDjango1.qcow2,format=qcow2 \
+    #   --disk path=/var/lib/libvirt/images/appDjango1-data.qcow2,format=qcow2 \
+    #   --network network=red-backend,model=virtio,mac=52:54:00:xx:yy:zz \
+    #   --network network=red-db-redis,model=virtio \
+    #   --os-variant ubuntu22.04 \
+    #   --cloud-init user-data=/tmp/user-data-appDjango1.yaml,network-config=/tmp/network-config-appDjango1.yaml \
+    #   --noautoconsole --import
+    # Parametros:
+    # --name: nombre del dominio en libvirt.
+    # --ram: memoria RAM en MB.
+    # --vcpus: cantidad de CPU virtuales.
+    # --disk: define los discos de la VM (path + formato).
+    # --network: NICs conectadas a redes libvirt definidas arriba.
+    # --os-variant: optimiza defaults para Ubuntu 22.04.
+    # --cloud-init: inyecta user-data y network-config al primer arranque.
+    # --noautoconsole: no abrir consola interactiva al crear.
+    # --import: usa la imagen qcow2 existente como base (sin instalador ISO).
     sudo virt-install \
       --name "$VM_NAME" \
       --ram "$RAM_MB" \
@@ -377,6 +400,7 @@ if ! sudo virsh dominfo "$VM_NAME" >/dev/null 2>&1; then
       --noautoconsole \
       --import
   else
+    # Mismo comando, pero solo con disco de sistema cuando --data-disk=0.
     sudo virt-install \
       --name "$VM_NAME" \
       --ram "$RAM_MB" \

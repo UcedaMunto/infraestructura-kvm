@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Proyecto Django Base</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: linear-gradient(120deg, #f5f7fa, #e9eef8);
+        color: #1f2937;
+      }
+      .card {
+        background: #ffffff;
+        border: 1px solid #dbe3ef;
+        border-radius: 14px;
+        padding: 28px;
+        width: min(92vw, 720px);
+        box-shadow: 0 12px 28px rgba(17, 24, 39, 0.08);
+      }
+      h1 {
+        margin-top: 0;
+        margin-bottom: 12px;
+      }
+      p {
+        margin: 8px 0;
+        line-height: 1.45;
+      }
+      code {
+        background: #eef2ff;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Proyecto Django listo</h1>
+      <p>Servidor actual: <strong>{{ server_id }}</strong></p>
+      <p>Este valor viene desde <code>.env</code> en la variable <code>servidor</code>.</p>
+      <p>MySQL y Redis estan listos para habilitarse por variables de entorno.</p>
+    </main>
+  </body>
+</html>
