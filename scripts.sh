@@ -13,7 +13,7 @@ echo "=== stop $ip ==="
 ssh -i "$KEY" $SSH_OPTS "$USER@$ip" "echo '$PASS' | sudo -S -p '' systemctl stop mariadb || true"
 done
 
-python manage.py changepassword admin
+#python manage.py changepassword admin
 
 NODES=(192.168.30.21 192.168.30.22 192.168.30.23)
 
@@ -30,4 +30,16 @@ ssh -i "$KEY" $SSH_OPTS "userinfrakv@192.168.30.23" \
  journalctl -xeu mariadb.service"
 
 
- 
+# LEVANTAR EL NODO INICIAL
+ssh -i "$KEY" $SSH_OPTS "userinfrakv@192.168.30.23" \
+"echo '$PASS' | sudo -S -p '' galera_new_cluster && \
+ echo '$PASS' | sudo -S -p '' systemctl is-active mariadb && \
+ echo '$PASS' | sudo -S -p '' mariadb -Nse \"SHOW STATUS LIKE 'wsrep_cluster_status'; SHOW STATUS LIKE 'wsrep_cluster_size'; SHOW STATUS LIKE 'wsrep_ready';\""
+
+# EL RESTO DE NODOS
+for ip in 192.168.30.21 192.168.30.22; do
+  ssh -i "$KEY" $SSH_OPTS "userinfrakv@$ip" \
+  "echo '$PASS' | sudo -S -p '' systemctl start mariadb && \
+   echo '$PASS' | sudo -S -p '' systemctl is-active mariadb"
+done
+
