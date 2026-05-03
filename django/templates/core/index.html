@@ -3,46 +3,219 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Proyecto Django Base</title>
+    <title>Panel de Ubicaciones</title>
     <style>
+      :root {
+        --bg-a: #f6f8f4;
+        --bg-b: #dce8d6;
+        --ink: #1f2a1f;
+        --card: #ffffff;
+        --accent: #226b45;
+        --accent-dark: #1a5034;
+        --line: #d1ddce;
+        --ok: #1e7a42;
+        --err: #a12d2f;
+      }
       body {
         margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        font-family: "Segoe UI", Tahoma, sans-serif;
-        background: linear-gradient(120deg, #f5f7fa, #e9eef8);
-        color: #1f2937;
+        min-height: 100dvh;
+        font-family: "Trebuchet MS", "Gill Sans", sans-serif;
+        background: radial-gradient(circle at 15% 15%, var(--bg-b), var(--bg-a));
+        color: var(--ink);
+      }
+      .layout {
+        max-width: 980px;
+        margin: 36px auto;
+        padding: 0 18px 28px;
       }
       .card {
-        background: #ffffff;
-        border: 1px solid #dbe3ef;
+        background: var(--card);
+        border: 1px solid var(--line);
         border-radius: 14px;
         padding: 28px;
-        width: min(92vw, 720px);
-        box-shadow: 0 12px 28px rgba(17, 24, 39, 0.08);
+        box-shadow: 0 18px 36px rgba(16, 32, 21, 0.1);
+      }
+      .title-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
       }
       h1 {
         margin-top: 0;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
       }
       p {
         margin: 8px 0;
         line-height: 1.45;
       }
-      code {
-        background: #eef2ff;
-        padding: 2px 6px;
-        border-radius: 6px;
+      .btn {
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-size: 0.95rem;
+        transition: transform 180ms ease, background 180ms ease;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+        background: var(--accent-dark);
+      }
+      .btn.secondary {
+        background: #3a473e;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 16px 0 10px;
+      }
+      .messages {
+        margin: 14px 0;
+        padding: 0;
+        list-style: none;
+      }
+      .messages li {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        margin-bottom: 8px;
+        background: #f5fbf6;
+      }
+      .messages li.error {
+        color: var(--err);
+        background: #fff3f2;
+        border-color: #f0cfcb;
+      }
+      .messages li.success {
+        color: var(--ok);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+      }
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 10px;
+        text-align: left;
+        font-size: 0.94rem;
+      }
+      th {
+        background: #eff6ee;
+      }
+      .empty {
+        border: 1px dashed var(--line);
+        border-radius: 10px;
+        padding: 14px;
+        margin-top: 12px;
+        background: #f9fcf9;
+      }
+      form.inline {
+        margin: 0;
+      }
+      @media (max-width: 760px) {
+        .title-row {
+          flex-direction: column;
+          align-items: flex-start;
+        }
       }
     </style>
   </head>
   <body>
-    <main class="card">
-      <h1>Proyecto Django listo</h1>
-      <p>Servidor actual: <strong>{{ server_id }}</strong></p>
-      <p>Este valor viene desde <code>.env</code> en la variable <code>servidor</code>.</p>
-      <p>MySQL y Redis estan listos para habilitarse por variables de entorno.</p>
+    <main class="layout">
+      <section class="card">
+        <div class="title-row">
+          <div>
+            <h1>Panel de ubicaciones</h1>
+            <p>Servidor actual: <strong>{{ server_id }}</strong></p>
+            <p>Usuario autenticado: <strong>{{ request.user.username }}</strong></p>
+          </div>
+          <form class="inline" method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button class="btn secondary" type="submit">Cerrar sesion</button>
+          </form>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="capturar-btn" type="button">Tomar mi ubicacion actual</button>
+        </div>
+
+        <form id="ubicacion-form" method="post" action="{% url 'guardar_ubicacion' %}" hidden>
+          {% csrf_token %}
+          <input type="hidden" id="latitud" name="latitud">
+          <input type="hidden" id="longitud" name="longitud">
+        </form>
+
+        {% if messages %}
+          <ul class="messages">
+            {% for message in messages %}
+              <li class="{{ message.tags }}">{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+        {% if ubicaciones %}
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Usuario</th>
+                <th>Latitud</th>
+                <th>Longitud</th>
+                <th>Fecha y hora</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for ubicacion in ubicaciones %}
+                <tr>
+                  <td>{{ ubicacion.id }}</td>
+                  <td>{{ ubicacion.usuario.username }}</td>
+                  <td>{{ ubicacion.latitud }}</td>
+                  <td>{{ ubicacion.longitud }}</td>
+                  <td>{{ ubicacion.fecha_hora|date:'Y-m-d H:i:s' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="empty">Aun no hay ubicaciones registradas para este usuario.</div>
+        {% endif %}
+      </section>
     </main>
+
+    <script>
+      const button = document.getElementById('capturar-btn');
+      const form = document.getElementById('ubicacion-form');
+      const latInput = document.getElementById('latitud');
+      const lonInput = document.getElementById('longitud');
+
+      button.addEventListener('click', () => {
+        if (!navigator.geolocation) {
+          alert('Tu navegador no soporta geolocalizacion.');
+          return;
+        }
+
+        button.disabled = true;
+        button.textContent = 'Obteniendo ubicacion...';
+
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            latInput.value = position.coords.latitude.toFixed(6);
+            lonInput.value = position.coords.longitude.toFixed(6);
+            form.submit();
+          },
+          (error) => {
+            button.disabled = false;
+            button.textContent = 'Tomar mi ubicacion actual';
+            alert(`No fue posible obtener ubicacion: ${error.message}`);
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      });
+    </script>
   </body>
 </html>

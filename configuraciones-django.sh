@@ -31,8 +31,12 @@ DB_NAME="${DB_NAME:-appdb}"
 DB_USER="${DB_USER:-appuser}"
 DB_PASSWORD="${DB_PASSWORD:-app-pass-2620}"
 
-REDIS_HOST="${REDIS_HOST:-192.168.30.10}"
+REDIS_HOST="${REDIS_HOST:-192.168.30.20}"
 REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_DB="${REDIS_DB:-1}"
+REDIS_USER="${REDIS_USER:-userinfrakv}"
+REDIS_PASSWORD="${REDIS_PASSWORD:-passphrase2620-07}"
+DJANGO_CSRF_TRUSTED_ORIGINS="${DJANGO_CSRF_TRUSTED_ORIGINS:-https://django1.ti.mimas.net,https://django2.ti.mimas.net,https://django3.ti.mimas.net,https://app1.ti.mimas.net,https://app2.ti.mimas.net,https://app3.ti.mimas.net,https://lb1.ti.mimas.net,https://lb2.ti.mimas.net}"
 
 APP_USER="${APP_USER:-django}"
 APP_GROUP="${APP_GROUP:-django}"
@@ -262,6 +266,7 @@ cat >'$PROJECT_DIR/.env' <<EOF2
 DJANGO_DEBUG=False
 DJANGO_SECRET_KEY=replace-this-with-real-secret
 DJANGO_ALLOWED_HOSTS=django1.ti.mimas.net,django2.ti.mimas.net,django3.ti.mimas.net,lb1.ti.mimas.net,lb2.ti.mimas.net,app1.ti.mimas.net,app2.ti.mimas.net,app3.ti.mimas.net,192.168.10.20,192.168.10.21,192.168.20.10,192.168.20.11,192.168.20.12
+DJANGO_CSRF_TRUSTED_ORIGINS=$DJANGO_CSRF_TRUSTED_ORIGINS
 DJANGO_COOP_POLICY=unsafe-none
 
 SERVIDOR=$ip
@@ -278,6 +283,9 @@ MYSQL_PORT=$DB_PORT
 REDIS_ENABLED=1
 REDIS_HOST=$REDIS_HOST
 REDIS_PORT=$REDIS_PORT
+REDIS_DB=$REDIS_DB
+REDIS_USER=$REDIS_USER
+REDIS_PASSWORD=$REDIS_PASSWORD
 EOF2
 
 chown '$APP_USER':'$APP_GROUP' '$PROJECT_DIR/.env'

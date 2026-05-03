@@ -7,6 +7,9 @@ set -euo pipefail
 #   bash configuraciones-nginx-dominio.sh 2
 #   bash configuraciones-nginx-dominio.sh 3
 #   bash configuraciones-nginx-dominio.sh 4
+#   bash configuraciones-nginx-dominio.sh 6   # Let's Encrypt django1 en LB
+#   bash configuraciones-nginx-dominio.sh 7   # Let's Encrypt app1 directo
+#   bash configuraciones-nginx-dominio.sh 8   # Validar HTTPS
 #   bash configuraciones-nginx-dominio.sh all
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +32,14 @@ APP1_IP="${APP1_IP:-192.168.20.10}"
 APP2_IP="${APP2_IP:-192.168.20.11}"
 APP3_IP="${APP3_IP:-192.168.20.12}"
 
+LE_EMAIL="${LE_EMAIL:-}"
+LE_STAGING="${LE_STAGING:-false}"
+LE_DJANGO1_DOMAIN="${LE_DJANGO1_DOMAIN:-django1.ti.mimas.net}"
+LE_APP1_DOMAIN="${LE_APP1_DOMAIN:-app1.ti.mimas.net}"
+LE_DJANGO1_TARGET_LB_IP="${LE_DJANGO1_TARGET_LB_IP:-$LB1_IP}"
+WILDCARD_BASE_DOMAIN="${WILDCARD_BASE_DOMAIN:-ti.mimas.net}"
+WILDCARD_CERT_DAYS="${WILDCARD_CERT_DAYS:-825}"
+
 if [[ ! -x "$CREATE_VM_SCRIPT" ]]; then
   echo "[ERROR] No se encontro script ejecutable: $CREATE_VM_SCRIPT"
   exit 1
@@ -46,6 +57,51 @@ ssh_cmd() {
   local ip="$1"
   shift
   ssh -i "$KEY" $SSH_OPTS "${VM_USER}@${ip}" "$@"
+}
+
+ssh_app_cmd() {
+  local ip="$1"
+  shift
+  ssh -i "$KEY" $SSH_OPTS "${VM_USER}@${ip}" "$@"
+}
+
+require_le_email() {
+  if [[ -z "$LE_EMAIL" ]]; then
+    echo "[ERROR] Debes definir LE_EMAIL para Let's Encrypt."
+    echo "[INFO] Ejemplo: LE_EMAIL=admin@tu-dominio.com bash configuraciones-nginx-dominio.sh 6"
+    exit 1
+  fi
+}
+
+certbot_stage_flag() {
+  if [[ "$LE_STAGING" == "true" ]]; then
+    echo "--test-cert"
+  fi
+}
+
+validate_single_a_record() {
+  local domain="$1"
+  local expected_ip="$2"
+
+  mapfile -t resolved_ips < <(getent ahostsv4 "$domain" | awk '{print $1}' | sort -u)
+
+  if (( ${#resolved_ips[@]} == 0 )); then
+    echo "[ERROR] No hay resolucion A para $domain en este host"
+    return 1
+  fi
+
+  if (( ${#resolved_ips[@]} > 1 )); then
+    echo "[ERROR] $domain tiene multiples IPs: ${resolved_ips[*]}"
+    echo "[INFO] Para HTTP-01 de Let's Encrypt debes apuntar temporalmente a una sola IP: $expected_ip"
+    return 1
+  fi
+
+  if [[ "${resolved_ips[0]}" != "$expected_ip" ]]; then
+    echo "[ERROR] $domain resuelve a ${resolved_ips[0]}, se esperaba $expected_ip"
+    return 1
+  fi
+
+  echo "[OK] $domain resuelve unicamente a $expected_ip"
 }
 
 wait_for_ssh_node() {
@@ -320,6 +376,222 @@ block_5_validate_host_domains() {
   done
 }
 
+block_6_letsencrypt_django1_lb() {
+  wait_for_all_lb_ssh
+  require_le_email
+  validate_single_a_record "$LE_DJANGO1_DOMAIN" "$LE_DJANGO1_TARGET_LB_IP"
+
+  local le_flag
+  le_flag="$(certbot_stage_flag)"
+
+  echo "[INFO] Emitiendo certificado Let's Encrypt para $LE_DJANGO1_DOMAIN en LB $LE_DJANGO1_TARGET_LB_IP"
+  ssh_cmd "$LE_DJANGO1_TARGET_LB_IP" "sudo bash -s" <<REMOTE
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y certbot python3-certbot-nginx
+
+certbot --nginx -n --agree-tos -m '$LE_EMAIL' $le_flag --redirect -d '$LE_DJANGO1_DOMAIN'
+
+nginx -t
+systemctl reload nginx
+REMOTE
+
+  echo "[OK] Certificado y redireccion HTTPS aplicados para $LE_DJANGO1_DOMAIN"
+}
+
+block_7_letsencrypt_app1_direct() {
+  wait_for_ssh_node "$APP1_IP"
+  require_le_email
+  validate_single_a_record "$LE_APP1_DOMAIN" "$APP1_IP"
+
+  local le_flag
+  le_flag="$(certbot_stage_flag)"
+
+  echo "[INFO] Emitiendo certificado Let's Encrypt para $LE_APP1_DOMAIN en app1 ($APP1_IP)"
+  ssh_app_cmd "$APP1_IP" "sudo bash -s" <<REMOTE
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y nginx certbot
+
+certbot certonly --standalone -n --agree-tos -m '$LE_EMAIL' $le_flag -d '$LE_APP1_DOMAIN' \
+  --pre-hook 'systemctl stop django-gunicorn.service' \
+  --post-hook 'systemctl start django-gunicorn.service'
+
+cat >/etc/nginx/sites-available/app1-https.conf <<'NGINX'
+server {
+  listen 443 ssl;
+  server_name app1.ti.mimas.net;
+
+  ssl_certificate /etc/letsencrypt/live/app1.ti.mimas.net/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/app1.ti.mimas.net/privkey.pem;
+
+  location / {
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 5s;
+    proxy_pass http://127.0.0.1:80;
+  }
+}
+NGINX
+
+ln -sfn /etc/nginx/sites-available/app1-https.conf /etc/nginx/sites-enabled/app1-https.conf
+nginx -t
+systemctl enable --now nginx
+systemctl restart nginx
+
+mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+cat >/etc/letsencrypt/renewal-hooks/deploy/reload-app1-nginx.sh <<'HOOK'
+#!/usr/bin/env bash
+set -euo pipefail
+systemctl reload nginx
+HOOK
+chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-app1-nginx.sh
+REMOTE
+
+  echo "[OK] Certificado y Nginx HTTPS aplicados para $LE_APP1_DOMAIN"
+}
+
+block_8_validate_https() {
+  local domain
+  for domain in "$LE_DJANGO1_DOMAIN" "$LE_APP1_DOMAIN"; do
+    echo "=== HTTPS -> $domain ==="
+    code="$(curl -sS --max-time 12 -o /dev/null -w '%{http_code}' "https://$domain/" || true)"
+    if [[ "$code" == "000" ]]; then
+      echo "[ERROR] $domain no responde por HTTPS"
+      return 1
+    fi
+    echo "[OK] $domain responde por HTTPS (codigo $code)"
+  done
+}
+
+block_9_wildcard_selfsigned_apply() {
+  wait_for_all_lb_ssh
+  wait_for_ssh_node "$APP1_IP"
+
+  local wildcard="*.${WILDCARD_BASE_DOMAIN}"
+  local cert_path="/etc/nginx/ssl/wildcard-${WILDCARD_BASE_DOMAIN}.crt"
+  local key_path="/etc/nginx/ssl/wildcard-${WILDCARD_BASE_DOMAIN}.key"
+
+  echo "[INFO] Aplicando certificado wildcard local en LB ${LE_DJANGO1_TARGET_LB_IP}"
+  ssh_cmd "$LE_DJANGO1_TARGET_LB_IP" "sudo bash -s" <<REMOTE
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y nginx openssl
+
+mkdir -p /etc/nginx/ssl
+if [[ ! -f '$cert_path' || ! -f '$key_path' ]]; then
+  openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days '$WILDCARD_CERT_DAYS' \
+    -keyout '$key_path' \
+    -out '$cert_path' \
+    -subj '/CN=$wildcard' \
+    -addext 'subjectAltName=DNS:$wildcard,DNS:${WILDCARD_BASE_DOMAIN}'
+fi
+
+cat >/etc/nginx/sites-available/django1-wildcard-ssl.conf <<'NGINX'
+upstream django_kvm_pool_ssl {
+  least_conn;
+  server ${APP1_IP}:80 max_fails=3 fail_timeout=10s;
+  server ${APP2_IP}:80 max_fails=3 fail_timeout=10s;
+  server ${APP3_IP}:80 max_fails=3 fail_timeout=10s;
+  keepalive 32;
+}
+
+server {
+  listen 443 ssl;
+  server_name django1.ti.mimas.net;
+
+  ssl_certificate /etc/nginx/ssl/wildcard-${WILDCARD_BASE_DOMAIN}.crt;
+  ssl_certificate_key /etc/nginx/ssl/wildcard-${WILDCARD_BASE_DOMAIN}.key;
+
+  location / {
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 5s;
+    proxy_pass http://django_kvm_pool_ssl;
+  }
+}
+NGINX
+
+ln -sfn /etc/nginx/sites-available/django1-wildcard-ssl.conf /etc/nginx/sites-enabled/django1-wildcard-ssl.conf
+nginx -t
+systemctl enable --now nginx
+systemctl restart nginx
+REMOTE
+
+  echo "[INFO] Aplicando certificado wildcard local en app1 (${APP1_IP})"
+  ssh_app_cmd "$APP1_IP" "sudo bash -s" <<REMOTE
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y nginx openssl
+
+mkdir -p /etc/nginx/ssl
+if [[ ! -f '$cert_path' || ! -f '$key_path' ]]; then
+  openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days '$WILDCARD_CERT_DAYS' \
+    -keyout '$key_path' \
+    -out '$cert_path' \
+    -subj '/CN=$wildcard' \
+    -addext 'subjectAltName=DNS:$wildcard,DNS:${WILDCARD_BASE_DOMAIN}'
+fi
+
+cat >/etc/nginx/sites-available/app1-wildcard-ssl.conf <<'NGINX'
+server {
+  listen 443 ssl;
+  server_name app1.ti.mimas.net;
+
+  ssl_certificate /etc/nginx/ssl/wildcard-${WILDCARD_BASE_DOMAIN}.crt;
+  ssl_certificate_key /etc/nginx/ssl/wildcard-${WILDCARD_BASE_DOMAIN}.key;
+
+  location / {
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 5s;
+    proxy_pass http://127.0.0.1:80;
+  }
+}
+NGINX
+
+ln -sfn /etc/nginx/sites-available/app1-wildcard-ssl.conf /etc/nginx/sites-enabled/app1-wildcard-ssl.conf
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+systemctl enable --now nginx
+systemctl restart nginx
+REMOTE
+
+  echo "[OK] Wildcard SSL local aplicado en django1/app1"
+}
+
+block_10_validate_wildcard_tls() {
+  local domain
+  for domain in "$LE_DJANGO1_DOMAIN" "$LE_APP1_DOMAIN"; do
+    echo "=== Wildcard HTTPS -> $domain ==="
+    code="$(curl -k -sS --max-time 12 -o /dev/null -w '%{http_code}' "https://$domain/" || true)"
+    if [[ "$code" == "000" ]]; then
+      echo "[ERROR] $domain no responde por HTTPS (wildcard)"
+      return 1
+    fi
+    echo "[OK] $domain responde por HTTPS con wildcard (codigo $code)"
+  done
+}
+
 usage() {
   cat <<'EOF2'
 Uso: bash configuraciones-nginx-dominio.sh <bloque>
@@ -331,7 +603,21 @@ Bloques disponibles:
   3      Validar Nginx y acceso por dominios via Host header
   4      Mostrar comandos MANUALES para publicar dominios en DNS
   5      Validar acceso real desde el host usando dominios resueltos
+  6      Let's Encrypt para django1.ti.mimas.net en LB objetivo
+  7      Let's Encrypt para app1.ti.mimas.net en app1 directo
+  8      Validar HTTPS de django1/app1
+  9      Aplicar wildcard SSL local (*.ti.mimas.net) en django1/app1
+  10     Validar wildcard HTTPS (curl -k)
   all    Ejecutar 1,2,3
+
+Variables para Let's Encrypt:
+  LE_EMAIL=admin@dominio.com
+  LE_STAGING=true|false
+  LE_DJANGO1_TARGET_LB_IP=192.168.10.20
+
+Variables wildcard local:
+  WILDCARD_BASE_DOMAIN=ti.mimas.net
+  WILDCARD_CERT_DAYS=825
 EOF2
 }
 
@@ -344,6 +630,11 @@ main() {
     3) block_3_validate_lb ;;
     4) block_4_manual_dns_commands ;;
     5) block_5_validate_host_domains ;;
+    6) block_6_letsencrypt_django1_lb ;;
+    7) block_7_letsencrypt_app1_direct ;;
+    8) block_8_validate_https ;;
+    9) block_9_wildcard_selfsigned_apply ;;
+    10) block_10_validate_wildcard_tls ;;
     all)
       block_1_create_or_start_lbs
       block_0_preflight_lbs

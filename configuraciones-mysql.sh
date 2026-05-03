@@ -7,8 +7,10 @@ set -euo pipefail
 #   bash configuraciones-mysql.sh 2
 #   bash configuraciones-mysql.sh all
 
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 CREATE_VM_SCRIPT="$BASE_DIR/create-kvm-vm.sh"
+
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEY="${KEY_OVERRIDE:-$BASE_DIR/ssh-keys/id_rsa}"
 SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8}"
 
@@ -17,6 +19,11 @@ VM_PASSWORD="${VM_PASSWORD:-passphrase2620-07}"
 WAIT_SSH_RETRIES="${WAIT_SSH_RETRIES:-80}"
 WAIT_SSH_SLEEP="${WAIT_SSH_SLEEP:-5}"
 MYSQL_STACK_NODES=(192.168.30.21 192.168.30.22 192.168.30.23 192.168.30.20)
+
+REDIS_HOST="${REDIS_HOST:-192.168.30.20}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_USER="${REDIS_USER:-userinfrakv}"
+REDIS_PASSWORD="${REDIS_PASSWORD:-passphrase2620-07}"
 
 if [[ ! -x "$CREATE_VM_SCRIPT" ]]; then
   echo "[ERROR] No se encontro script ejecutable: $CREATE_VM_SCRIPT"
@@ -203,6 +210,46 @@ block_2_create_mysql_stack() {
   wait_for_stack_ready
 }
 
+block_3_configure_redis() {
+  echo "[INFO] Configurando Redis en $REDIS_HOST:$REDIS_PORT"
+
+  wait_for_ssh_node "$REDIS_HOST"
+
+  ssh_cmd "$REDIS_HOST" "sudo bash -s" <<REMOTE
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y redis-server
+
+if [[ ! -f /etc/redis/redis.conf ]]; then
+  echo "[ERROR] No existe /etc/redis/redis.conf"
+  exit 1
+fi
+
+# Redis queda accesible solo por loopback y red interna de datos.
+sed -i -E "s/^bind .*/bind 127.0.0.1 ${REDIS_HOST}/" /etc/redis/redis.conf
+sed -i -E "s/^#?port .*/port ${REDIS_PORT}/" /etc/redis/redis.conf
+sed -i -E "s/^#?protected-mode .*/protected-mode yes/" /etc/redis/redis.conf
+
+systemctl enable redis-server
+systemctl restart redis-server
+
+# Crea/actualiza usuario ACL dedicado para clientes.
+redis-cli -h 127.0.0.1 -p ${REDIS_PORT} ACL SETUSER ${REDIS_USER} on \>${REDIS_PASSWORD} ~* +@all
+redis-cli -h 127.0.0.1 -p ${REDIS_PORT} CONFIG REWRITE || true
+
+echo "[OK] Redis activo"
+systemctl is-active redis-server
+ss -ltnp | grep ":${REDIS_PORT} " || true
+redis-cli -h 127.0.0.1 -p ${REDIS_PORT} --user ${REDIS_USER} -a ${REDIS_PASSWORD} PING
+redis-cli -h 127.0.0.1 -p ${REDIS_PORT} ACL LIST | grep "user ${REDIS_USER} " || true
+REMOTE
+
+  echo "[OK] Redis configurado en $REDIS_HOST:$REDIS_PORT"
+  echo "[INFO] Usuario ACL: $REDIS_USER"
+}
+
 usage() {
   cat <<'EOF2'
 Uso: bash configuraciones-mysql.sh <bloque>
@@ -210,7 +257,14 @@ Uso: bash configuraciones-mysql.sh <bloque>
 Bloques disponibles:
   1      Re-crear redes libvirt con NAT/bridge correctos
   2      Crear VMs MariaDB + MaxScale + esperar SSH estable
-  all    Ejecutar 1,2
+  3      Instalar/configurar Redis (ACL user/pass)
+  all    Ejecutar 1,2,3
+
+Variables opcionales Redis:
+  REDIS_HOST=192.168.30.20
+  REDIS_PORT=6379
+  REDIS_USER=userinfrakv
+  REDIS_PASSWORD=passphrase2620-07
 EOF2
 }
 
@@ -219,9 +273,11 @@ main() {
   case "$block" in
     1) block_1_create_networks ;;
     2) block_2_create_mysql_stack ;;
+    3) block_3_configure_redis ;;
     all)
       block_1_create_networks
       block_2_create_mysql_stack
+      block_3_configure_redis
       ;;
     *)
       usage

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Iniciar sesion</title>
+    <style>
+      :root {
+        --bg-a: #f7f6f2;
+        --bg-b: #e6dec7;
+        --ink: #2d2a1f;
+        --card: #ffffff;
+        --line: #ddd2b6;
+        --accent: #7d5a1e;
+        --accent-dark: #654915;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        font-family: "Trebuchet MS", "Gill Sans", sans-serif;
+        background: linear-gradient(135deg, var(--bg-a), var(--bg-b));
+        color: var(--ink);
+      }
+      .card {
+        width: min(92vw, 420px);
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 24px;
+        box-shadow: 0 16px 28px rgba(45, 42, 31, 0.12);
+      }
+      h1 {
+        margin: 0 0 12px;
+      }
+      p {
+        margin: 0 0 16px;
+      }
+      label {
+        display: block;
+        margin: 10px 0 6px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+      }
+      button {
+        margin-top: 14px;
+        width: 100%;
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        padding: 11px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--accent-dark);
+      }
+      ul {
+        margin: 8px 0 0;
+        color: #8f2124;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Ingreso al sistema</h1>
+      <p>Autenticate para registrar y visualizar ubicaciones.</p>
+
+      {% if form.errors %}
+        <ul>
+          <li>Usuario o contrasena invalidos.</li>
+        </ul>
+      {% endif %}
+
+      <form method="post">
+        {% csrf_token %}
+        <label for="id_username">Usuario</label>
+        {{ form.username }}
+
+        <label for="id_password">Contrasena</label>
+        {{ form.password }}
+
+        <button type="submit">Entrar</button>
+      </form>
+    </main>
+  </body>
+</html>

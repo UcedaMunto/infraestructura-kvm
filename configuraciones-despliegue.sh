@@ -23,6 +23,8 @@ MYSQL_PASOS_SCRIPT="$BASE_DIR/scripts/mysql-pasos.bash"
 
 AUTO_APPROVE_DJANGO="${AUTO_APPROVE_DJANGO:-false}"
 INCLUDE_MYSQL_PASOS="${INCLUDE_MYSQL_PASOS:-true}"
+ENABLE_LETSENCRYPT="${ENABLE_LETSENCRYPT:-false}"
+ENABLE_WILDCARD_SSL="${ENABLE_WILDCARD_SSL:-false}"
 
 STEP_COUNTER=0
 
@@ -80,6 +82,8 @@ print_plan() {
   echo "  6) Django: runtime + settings + Gunicorn + validacion"
   echo "  7) Nginx LB: crear LBs + configurar + validar"
   echo "  8) Nota final: si necesitas, imprimir comandos DNS manuales del LB bloque 4"
+  echo "  9) (Opcional) HTTPS/SSL con Let's Encrypt para django1.ti.mimas.net y app1.ti.mimas.net"
+  echo "  10) (Opcional) Wildcard SSL local (*.ti.mimas.net) para django1/app1"
 }
 
 run_checked() {
@@ -179,6 +183,25 @@ run_full_deploy() {
   step "Nginx dominio completo"
   run_checked "$NGINX_SCRIPT" all
 
+  if [[ "$ENABLE_LETSENCRYPT" == "true" ]]; then
+    step "Let's Encrypt (HTTPS/SSL)"
+    run_checked "$NGINX_SCRIPT" 6
+    run_checked "$NGINX_SCRIPT" 7
+    run_checked "$NGINX_SCRIPT" 8
+  else
+    log "ENABLE_LETSENCRYPT=false, se omite configuracion HTTPS/SSL"
+    log "Para habilitar: ENABLE_LETSENCRYPT=true LE_EMAIL=admin@dominio.com bash configuraciones-despliegue.sh run"
+  fi
+
+  if [[ "$ENABLE_WILDCARD_SSL" == "true" ]]; then
+    step "Wildcard SSL local (*.ti.mimas.net)"
+    run_checked "$NGINX_SCRIPT" 9
+    run_checked "$NGINX_SCRIPT" 10
+  else
+    log "ENABLE_WILDCARD_SSL=false, se omite wildcard SSL local"
+    log "Para habilitar: ENABLE_WILDCARD_SSL=true bash configuraciones-despliegue.sh run"
+  fi
+
   step "Comandos DNS manuales de soporte (informativo)"
   run_checked "$NGINX_SCRIPT" 4
 
@@ -198,6 +221,13 @@ Acciones:
 Variables opcionales:
   AUTO_APPROVE_DJANGO=true
   INCLUDE_MYSQL_PASOS=false
+  ENABLE_LETSENCRYPT=true
+  LE_EMAIL=admin@dominio.com
+  LE_STAGING=true|false
+  LE_DJANGO1_TARGET_LB_IP=192.168.10.20
+  ENABLE_WILDCARD_SSL=true
+  WILDCARD_BASE_DOMAIN=ti.mimas.net
+  WILDCARD_CERT_DAYS=825
 EOF
 }
 
