@@ -15,6 +15,8 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEY="${KEY_OVERRIDE:-$BASE_DIR/ssh-keys/id_rsa}"
 SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8}"
 SSH_USER="${SSH_USER:-userinfrakv}"
+VM_PASSWORD="${VM_PASSWORD:-passphrase2620-07}"
+CREATE_VM_SCRIPT="${CREATE_VM_SCRIPT:-$BASE_DIR/create-kvm-vm.sh}"
 
 WAIT_SSH_RETRIES="${WAIT_SSH_RETRIES:-80}"
 WAIT_SSH_SLEEP="${WAIT_SSH_SLEEP:-5}"
@@ -100,6 +102,52 @@ rm -f /var/lib/dpkg/updates/*
 dpkg --configure -a || true
 apt-get -y -f install || true
 REMOTE
+}
+
+block_create_vms() {
+    if [[ ! -f "$CREATE_VM_SCRIPT" ]]; then
+      echo "[ERROR] No se encontro: $CREATE_VM_SCRIPT"
+      exit 1
+    fi
+
+    local extra="192.168.10.10 ns1.mimas.net dns-principal;192.168.10.11 ns1.ti.mimas.net dns-delegado;192.168.10.20 lb1.ti.mimas.net lb1;192.168.10.21 lb2.ti.mimas.net lb2;192.168.20.10 app1.ti.mimas.net appDjango1;192.168.20.11 app2.ti.mimas.net appDjango2;192.168.20.12 app3.ti.mimas.net appDjango3;192.168.30.20 db.ti.mimas.net maxscale-1"
+
+    echo "[INFO] Creando appDjango1"
+    bash "$CREATE_VM_SCRIPT" \
+      --name appDjango1 \
+      --hostname app1.ti.mimas.net \
+      --user "$SSH_USER" \
+      --password "$VM_PASSWORD" \
+      --ram 4096 --vcpus 2 --system-disk 30 --data-disk 0 \
+      --libvirt-nets "red-backend;red-db-redis" \
+      --ifaces "enp1s0,192.168.20.10/24,192.168.20.1,192.168.10.10,8.8.8.8;enp2s0,192.168.30.30/24,,192.168.10.10,8.8.8.8" \
+      --extra-hosts "$extra"
+
+    echo "[INFO] Creando appDjango2"
+    bash "$CREATE_VM_SCRIPT" \
+      --name appDjango2 \
+      --hostname app2.ti.mimas.net \
+      --user "$SSH_USER" \
+      --password "$VM_PASSWORD" \
+      --ram 4096 --vcpus 2 --system-disk 30 --data-disk 0 \
+      --libvirt-nets "red-backend;red-db-redis" \
+      --ifaces "enp1s0,192.168.20.11/24,192.168.20.1,192.168.10.10,8.8.8.8;enp2s0,192.168.30.31/24,,192.168.10.10,8.8.8.8" \
+      --extra-hosts "$extra"
+
+    echo "[INFO] Creando appDjango3"
+    bash "$CREATE_VM_SCRIPT" \
+      --name appDjango3 \
+      --hostname app3.ti.mimas.net \
+      --user "$SSH_USER" \
+      --password "$VM_PASSWORD" \
+      --ram 4096 --vcpus 2 --system-disk 30 --data-disk 0 \
+      --libvirt-nets "red-backend;red-db-redis" \
+      --ifaces "enp1s0,192.168.20.12/24,192.168.20.1,192.168.10.10,8.8.8.8;enp2s0,192.168.30.32/24,,192.168.10.10,8.8.8.8" \
+      --extra-hosts "$extra"
+
+    echo "[OK] VMs Django creadas"
+    sudo virsh list --all | grep -E 'appDjango' || true
+    wait_for_all_apps_ssh
 }
 
 block_0_preflight_apps() {
@@ -402,7 +450,8 @@ Bloques disponibles:
   all    Ejecutar 0,2,3,4,5,6,7
 
 Nota:
-  Este script YA NO crea VMs Django. Debes crearlas manualmente antes del bloque 2.
+  create-vms  Crear VMs Django (appDjango1/2/3) automaticamente
+  Este script gestiona la infraestructura Django completa.
 EOF2
 }
 
@@ -417,6 +466,7 @@ main() {
     5) block_5_configure_gunicorn_80 ;;
     6) block_6_validate_apps ;;
     7) block_7_validate_db_from_apps ;;
+      create-vms) block_create_vms ;;
     all)
       block_0_preflight_apps
       block_2_wait_ssh_apps

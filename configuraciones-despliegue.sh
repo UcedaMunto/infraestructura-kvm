@@ -76,7 +76,7 @@ print_plan() {
   echo "  2) DNS: crear VMs + configurar principal y delegado + validar"
   echo "  3) MySQL infra: crear VMs de MariaDB/MaxScale"
   echo "  4) (Opcional) MySQL servicio: Galera + MaxScale (mysql-pasos)"
-  echo "  5) Pausa manual: crear VMs Django appDjango1/2/3"
+  echo "  5) Crear VMs Django (automatico): appDjango1/2/3 via create-kvm-vm.sh"
   echo "  6) Django: runtime + settings + Gunicorn + validacion"
   echo "  7) Nginx LB: crear LBs + configurar + validar"
   echo "  8) Nota final: si necesitas, imprimir comandos DNS manuales del LB bloque 4"
@@ -170,8 +170,8 @@ run_full_deploy() {
     log "INCLUDE_MYSQL_PASOS=false, se omite configuracion de servicio MySQL"
   fi
 
-  step "Pausa para VMs Django manuales"
-  confirm_django_manual_creation
+  step "Crear VMs Django (automatico)"
+  run_checked "$DJANGO_SCRIPT" create-vms
 
   step "Django completo"
   run_checked "$DJANGO_SCRIPT" all

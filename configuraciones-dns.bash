@@ -304,6 +304,9 @@ django3 IN  A   192.168.10.21
 app1    IN  A   192.168.20.10
 app2    IN  A   192.168.20.11
 app3    IN  A   192.168.20.12
+
+redis1  IN  A   192.168.30.10
+redis2  IN  A   192.168.30.11
 EOF2
 
 sudo named-checkconf

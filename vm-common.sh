@@ -54,20 +54,19 @@ ensure_shared_ssh_keys() {
 # del proyecto y, si existe, la llave publica del host sin duplicados.
 build_authorized_keys_content() {
   local content
+  local host_key
+
+  # Carga llave pública principal
   content="$(<"$SSH_PUBLIC_KEY")"
   echo "[INFO] Llave publica del proyecto cargada desde: $SSH_PUBLIC_KEY" >&2
 
-  # Si existe una llave publica del host, la anexa al contenido final
-  # para permitir acceso desde el host, evitando duplicarla.
-  if [[ -n "$HOST_PUBLIC_KEY" && -f "$HOST_PUBLIC_KEY" ]]; then
-    local host_key
-    host_key="$(<"$HOST_PUBLIC_KEY")"
-    if [[ "$host_key" != "$content" ]]; then
-      content+=$'\n'"$host_key"
-    fi
-  fi
+  # Agrega llave pública del host sin validar existencia
+  host_key="$(<"$HOST_PUBLIC_KEY")"
 
-  printf '%s\n' "$content"
+  # Evita duplicados
+  if [[ "$host_key" != "$content" ]]; then
+    content+=$'\n'"$host_key"
+  fi
 }
 
 # BLOQUE 5: Convierte llaves SSH en formato de lista YAML para cloud-init.
@@ -110,11 +109,9 @@ EOF
 # y ejecutar el script de primer arranque una sola vez.
 build_first_boot_script_runcmd() {
   local first_boot_script="$1"
-
   if [[ -z "${first_boot_script// }" ]]; then
     return
   fi
-
   cat <<'EOF'
   - sed -i 's/\r$//' /usr/local/sbin/custom-first-boot.sh
   - /usr/local/sbin/custom-first-boot.sh
@@ -169,6 +166,58 @@ build_hosts_content() {
 
 # BLOQUE 11: Genera el fragmento YAML de interfaces de red para netplan,
 # soportando una o multiples NICs, IP estatica/DHCP, gateway y DNS.
+'''
+# 1. Recibe la configuración de interfaces
+# Ejemplo:
+ifaces_spec="enp1s0,192.168.3.54/24,192.168.3.1,8.8.8.8|1.1.1.1"
+
+# 2. Recibe la MAC principal opcional
+primary_mac="52:54:00:aa:bb:cc"
+
+# 3. Si no se mandan interfaces, genera DHCP por defecto
+cat <<'EOF'
+    enp1s0:
+      dhcp4: true
+EOF
+
+# 4. Separa varias tarjetas usando ;
+# Ejemplo:
+# enp1s0,192.168.3.54/24,192.168.3.1,8.8.8.8|1.1.1.1;
+# enp2s0,192.168.130.54/24,,8.8.8.8
+
+# 5. Separa cada interfaz por comas:
+# nombre,ip,gateway,dns
+
+# 6. Imprime el nombre de la interfaz
+echo "    enp1s0:"
+
+# 7. Si es la primera interfaz y tiene MAC, agrega match por MAC
+cat <<EOF
+      match:
+        macaddress: 52:54:00:aa:bb:cc
+      set-name: enp1s0
+EOF
+
+# 8. Si tiene IP fija, imprime configuración estática
+echo "      dhcp4: false"
+echo "      addresses: [192.168.3.54/24]"
+
+# 9. Si tiene gateway, imprime ruta por defecto
+cat <<EOF
+      routes:
+        - to: default
+          via: 192.168.3.1
+EOF
+
+# 10. Si tiene DNS, reemplaza | por coma
+# 8.8.8.8|1.1.1.1 -> 8.8.8.8, 1.1.1.1
+
+# 11. Imprime DNS
+cat <<EOF
+      nameservers:
+        addresses: [8.8.8.8, 1.1.1.1]
+EOF
+'''
 build_network_yaml() {
   local ifaces_spec="$1"
   local primary_mac="${2:-}"
