@@ -148,9 +148,6 @@ db3 --> db1 : Galera 4567/4568/4444
 app1 --> cephgw : CephFS / media
 app2 --> cephgw : CephFS / media
 app3 --> cephgw : CephFS / media
-db1 --> cephgw : backups
-db2 --> cephgw : backups
-db3 --> cephgw : backups
 cephgw --> st1 : almacenamiento
 cephgw --> st2 : almacenamiento
 cephgw --> st3 : almacenamiento
