@@ -8,6 +8,7 @@ set -euo pipefail
 #   bash configuraciones-dns.bash 3
 #   bash configuraciones-dns.bash 4
 #   bash configuraciones-dns.bash 5
+#   bash configuraciones-dns.bash 7
 #   bash configuraciones-dns.bash all
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +23,10 @@ WAIT_SSH_SLEEP="${WAIT_SSH_SLEEP:-5}"
 
 DNS1_IP="${DNS1_IP:-192.168.10.10}"
 DNS2_IP="${DNS2_IP:-192.168.10.11}"
+CEPH_CLUSTER_NET_NAME="${CEPH_CLUSTER_NET_NAME:-red-ceph-cluster}"
+CEPH_CLUSTER_GW="${CEPH_CLUSTER_GW:-192.168.60.1}"
+CEPH_CLUSTER_MASK="${CEPH_CLUSTER_MASK:-255.255.255.0}"
+CEPH_CLUSTER_BRIDGE="${CEPH_CLUSTER_BRIDGE:-brceph0}"
 
 if [[ ! -x "$CREATE_VM_SCRIPT" ]]; then
   echo "[ERROR] No se encontro script ejecutable: $CREATE_VM_SCRIPT"
@@ -140,6 +145,28 @@ block_1_networks() {
 
   echo "[OK] Redes recreadas"
   sudo virsh net-list --all
+}
+
+block_7_network_ceph_cluster() {
+  # Red dedicada para el cluster interno Ceph (trafico MON/OSD/replicacion).
+  local xml="/tmp/${CEPH_CLUSTER_NET_NAME}.xml"
+
+  cat > "$xml" <<XML
+<network>
+  <name>${CEPH_CLUSTER_NET_NAME}</name>
+  <bridge name='${CEPH_CLUSTER_BRIDGE}' stp='on' delay='0'/>
+  <ip address='${CEPH_CLUSTER_GW}' netmask='${CEPH_CLUSTER_MASK}'/>
+</network>
+XML
+
+  sudo virsh net-destroy "$CEPH_CLUSTER_NET_NAME" 2>/dev/null || true
+  sudo virsh net-undefine "$CEPH_CLUSTER_NET_NAME" 2>/dev/null || true
+  sudo virsh net-define "$xml"
+  sudo virsh net-start "$CEPH_CLUSTER_NET_NAME"
+  sudo virsh net-autostart "$CEPH_CLUSTER_NET_NAME"
+
+  echo "[OK] Red Ceph cluster recreada: $CEPH_CLUSTER_NET_NAME (bridge $CEPH_CLUSTER_BRIDGE, $CEPH_CLUSTER_GW/$CEPH_CLUSTER_MASK)"
+  sudo virsh net-info "$CEPH_CLUSTER_NET_NAME"
 }
 
 block_2_create_dns_vms() {
@@ -358,7 +385,8 @@ Bloques disponibles:
   4      Configurar BIND en DNS delegado (ti.mimas.net + registros)
   5      Validar DNS interno y forwarders
   6      Validar acceso del host a DNS y uso del resolver local
-  all    Ejecutar 1,2,0,3,4,5,6
+  7      Crear/recrear red dedicada Ceph cluster (red-ceph-cluster)
+  all    Ejecutar 1,7,2,0,3,4,5,6
 EOF2
 }
 
@@ -372,8 +400,10 @@ main() {
     4) block_4_config_dns_delegado ;;
     5) block_5_validate_dns ;;
     6) block_6_validate_host_to_dns ;;
+    7) block_7_network_ceph_cluster ;;
     all)
       block_1_networks
+      block_7_network_ceph_cluster
       block_2_create_dns_vms
       block_0_preflight_dns
       block_3_config_dns_principal

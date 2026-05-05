@@ -14,6 +14,7 @@
 |  | br2 → 192.168.30.0/24 | DB / Redis | — | — |
 |  | br3 → 192.168.40.0/24 | Ceph / Storage | — | — |
 |  | br4 → 192.168.50.0/24 | Administración | — | — |
+|  | br5 → 192.168.60.0/24 | Ceph Cluster (interna) | — | — |
 | **KVM Host-2** | Igual estructura | Hypervisor secundario | 22, 443, 16509, 5900-5999 | host2.infra.mimas.net |
 | **KVM Host-3** | Igual estructura | Hypervisor terciario | 22, 443, 16509, 5900-5999 | host3.infra.mimas.net |
 | **DNS Principal** | eth0 → 192.168.10.10 | DNS raíz mimas.net | 53 TCP/UDP, 22, 80, 443 | ns1.mimas.net |
@@ -54,6 +55,19 @@
 
 ---
 
+# Asignacion actual para Ceph (1 nodo activo)
+
+| Nodo Ceph | IP cluster (red-ceph-cluster) | IP publica (red-storage) | Rol activo | Dominio |
+|-----------|-------------------------------|---------------------------|------------|---------|
+| **Ceph Node-1** | 192.168.60.11 | 192.168.40.30 | MON + MGR + OSD | ceph1.ti.mimas.net |
+
+**Observaciones:**
+- Los nodos Ceph adicionales fueron retirados del laboratorio y ya no forman parte del inventario activo.
+- `red-ceph-cluster` (192.168.60.0/24) queda para el plano interno del nodo Ceph activo.
+- `red-storage` (192.168.40.0/24) queda como red pública para clientes (Django y/o backups).
+
+---
+
 # Tabla de redes y usos
 
 | Red | Segmento | Uso principal | Sistemas involucrados | Seguridad recomendada |
@@ -63,6 +77,7 @@
 | **Red DB / Redis** | 192.168.30.0/24 | Base de datos, sesiones, cache | MariaDB, MaxScale, Redis | Acceso restringido por backend |
 | **Red Storage** | 192.168.40.0/24 | CephFS, archivos, media, backups | Ceph cluster, DB backups, Django media | Solo nodos autorizados |
 | **Red Administrativa** | 192.168.50.0/24 | SSH, monitoreo, gestión, bastion | Todos los nodos | VPN, MFA, acceso limitado |
+| **Red Ceph Cluster** | 192.168.60.0/24 | Plano interno de Ceph | Ceph Node-1 | Aislada de cliente, solo tráfico Ceph |
 
 ---
 
@@ -75,12 +90,14 @@
 | **red-db-redis** | br2 | 192.168.30.0/24 | 192.168.30.1 | No (IPs fijas) | bridge | appDjango1/appDjango2/appDjango3, Redis-1/2, MaxScale, MariaDB-1/2/3 |
 | **red-storage** | br3 | 192.168.40.0/24 | 192.168.40.1 | No (IPs fijas) | bridge | MariaDB-1/2/3, Ceph Gateway, Storage-1/2/3 |
 | **red-admin** | br4 | 192.168.50.0/24 | 192.168.50.1 | No (IPs fijas) | bridge | Todos los nodos (interfaz de gestión), Bastion, Monitorización |
+| **red-ceph-cluster** | br5 | 192.168.60.0/24 | 192.168.60.1 | No (IPs fijas) | bridge | Ceph Node-1 y nodos que participen en el plano interno Ceph |
 
 **Notas:**
 - Todas las redes usan IPs estáticas asignadas por cloud-init (sin DHCP).
 - `red-principal` usa modo NAT en entornos de laboratorio para salida a internet.
 - `red-backend` y `red-db-redis` también usan NAT en laboratorio para permitir `apt-get` durante el aprovisionamiento inicial. En producción estas redes serían bridge aisladas sin NAT.
 - `red-storage` y `red-admin` son redes internas aisladas (modo `bridge` sin NAT).
+- `red-ceph-cluster` es red interna aislada (modo `bridge` sin NAT) para tráfico interno Ceph.
 - En la automatización actual, las VMs Django se crean con 2 interfaces: `red-backend` y `red-db-redis`. Las interfaces de storage/admin quedan para una fase posterior.
 - El Bastion (192.168.50.2) es el único punto de acceso SSH externo a `red-admin`.
 
@@ -114,5 +131,6 @@ redis.ti.mimas.net
 storage.ti.mimas.net
 bastion.mimas.net
 monitor.mimas.net
+ceph1.ti.mimas.net
 
 
