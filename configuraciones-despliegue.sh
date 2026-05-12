@@ -21,7 +21,7 @@ DJANGO_SCRIPT="$BASE_DIR/configuraciones-django.sh"
 NGINX_SCRIPT="$BASE_DIR/configuraciones-nginx-dominio.sh"
 MYSQL_PASOS_SCRIPT="$BASE_DIR/scripts/mysql-pasos.bash"
 
-AUTO_APPROVE_DJANGO="${AUTO_APPROVE_DJANGO:-false}"
+AUTO_APPROVE_WINTERCMS="${AUTO_APPROVE_WINTERCMS:-false}"
 INCLUDE_MYSQL_PASOS="${INCLUDE_MYSQL_PASOS:-true}"
 ENABLE_LETSENCRYPT="${ENABLE_LETSENCRYPT:-false}"
 ENABLE_WILDCARD_SSL="${ENABLE_WILDCARD_SSL:-false}"
@@ -80,6 +80,8 @@ print_plan() {
   echo "  4) (Opcional) MySQL servicio: Galera + MaxScale (mysql-pasos)"
   echo "  5) Crear VMs Django (automatico): appDjango1/2/3 via create-kvm-vm.sh"
   echo "  6) Django: runtime + settings + Gunicorn + validacion"
+  echo "  5) Crear VMs WinterCMS (automatico): appWinter1/2/3 via create-kvm-vm.sh"
+  echo "  6) WinterCMS: runtime + settings + validacion"
   echo "  7) Nginx LB: crear LBs + configurar + validar"
   echo "  8) Nota final: si necesitas, imprimir comandos DNS manuales del LB bloque 4"
   echo "  9) (Opcional) HTTPS/SSL con Let's Encrypt para django1.ti.mimas.net y app1.ti.mimas.net"
@@ -175,10 +177,10 @@ run_full_deploy() {
   fi
 
   step "Crear VMs Django (automatico)"
-  run_checked "$DJANGO_SCRIPT" create-vms
+  run_checked "$WINTERCMS_SCRIPT" create-vms
 
   step "Django completo"
-  run_checked "$DJANGO_SCRIPT" all
+  run_checked "$WINTERCMS_SCRIPT" all
 
   step "Nginx dominio completo"
   run_checked "$NGINX_SCRIPT" all
@@ -236,6 +238,7 @@ main() {
   require_file "$MYSQL_SCRIPT"
   require_file "$DJANGO_SCRIPT"
   require_file "$NGINX_SCRIPT"
+  require_file "$WINTERCMS_SCRIPT"
 
   local action="${1:-}"
   case "$action" in

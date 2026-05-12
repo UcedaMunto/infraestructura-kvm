@@ -1,0 +1,102 @@
+@startuml DNS Architecture - Gepardo & Mimas Domains
+
+!define ACCENT_COLOR #FF6B6B
+!define PRIMARY_COLOR #4ECDC4
+!define SECONDARY_COLOR #45B7D1
+!define ZONE_COLOR #FFA07A
+!define CLIENT_COLOR #98D8C8
+
+skinparam backgroundColor #F7F7F7
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+package "DNS Infrastructure" {
+    
+    package "Primary DNS Server (ns1)" {
+        component "ns1\n192.168.10.10" as ns1 #PRIMARY_COLOR
+        database "Zone Files" as zones_ns1 #ZONE_COLOR {
+            component "mimas.net\nSOA: ns1.mimas.net\nSerial: 2026050218" as zone_mimas
+            component "ti.mimas.net\n(Forward Only)\n→ 192.168.10.11" as zone_ti_forward
+            component "gepardo.com\nSOA: ns\nSerial: 6" as zone_gepardo
+        }
+    }
+    
+    package "Secondary/Delegated DNS Server (ns1.ti.mimas.net)" {
+        component "ns1.ti.mimas.net\n192.168.10.11" as ns2 #SECONDARY_COLOR
+        database "Zone Files" as zones_ns2 #ZONE_COLOR {
+            component "ti.mimas.net\nSOA: ns1.ti.mimas.net\nSerial: varies" as zone_ti_master
+            component "occidente.gepardo.com\nSOA: ns.occidente\nSerial: varies" as zone_occidente
+        }
+    }
+}
+
+package "Domain Hierarchy" {
+    component "Root (.)" as root #CLIENT_COLOR
+    component "gepardo.com\nNS: ns → 192.168.20.10" as gep_domain
+    component "occidente.gepardo.com\nNS: ns.occidente.gepardo.com\n(Delegated)" as occ_domain
+    component "ti.mimas.net\nNS: ns1.ti.mimas.net → 192.168.10.11" as ti_domain
+}
+
+package "Records - occidente.gepardo.com" {
+    component "occidente.gepardo.com\nA: 192.168.20.12" as rec_root
+    component "mail.occidente.gepardo.com\n(Not defined - NXDOMAIN)" as rec_mail
+    component "www.occidente.gepardo.com\n(Not defined - NXDOMAIN)" as rec_www
+}
+
+package "Records - ti.mimas.net" {
+    component "app1.ti.mimas.net\nA: 192.168.20.10" as rec_app1
+    component "app2.ti.mimas.net\nA: 192.168.20.11" as rec_app2
+    component "app3.ti.mimas.net\nA: 192.168.20.12" as rec_app3
+    component "lb1.ti.mimas.net\nA: 192.168.10.20" as rec_lb1
+    component "db.ti.mimas.net\nA: 192.168.30.20" as rec_db
+}
+
+package "Clients" {
+    component "Client @ ns1" as client1 #CLIENT_COLOR
+    component "Client @ ns2\n192.168.10.11" as client2 #CLIENT_COLOR
+    component "Client @ app nodes\n192.168.20.x" as client3 #CLIENT_COLOR
+}
+
+' Relationships - NS Architecture
+ns1 --> zones_ns1 : maintains
+ns2 --> zones_ns2 : maintains
+
+' Zone Configuration
+zone_mimas -.-> ti_domain : delegates to\nns1.ti.mimas.net
+zone_ti_forward -.-> ns2 : forwards to
+zone_gepardo --> occ_domain : delegates to\nns.occidente
+
+' Records mapping
+zone_ti_master --> rec_app1
+zone_ti_master --> rec_app2
+zone_ti_master --> rec_app3
+zone_ti_master --> rec_lb1
+zone_ti_master --> rec_db
+
+zone_occidente --> rec_root
+zone_occidente -.-> rec_mail : no A record
+zone_occidente -.-> rec_www : no A record
+
+' Client queries
+client1 ==> ns1 : queries
+client2 ==> ns2 : queries
+client3 ==> ns1 : queries via 192.168.10.10
+
+' Query Flow (Example: occidente.gepardo.com from client1)
+note on link client1,ns1
+  Query: occidente.gepardo.com
+  1. ns1 checks zone gepardo.com
+  2. ns1 delegates to ns.occidente.gepardo.com
+  3. ns1 forwards query to 192.168.10.11
+  4. ns1.ti.mimas.net responds with A: 192.168.20.12
+end note
+
+' Forward behavior
+note on link zone_ti_forward,ns2
+  Zone "ti.mimas.net" is FORWARD ONLY
+  All queries to ti.mimas.net
+  are forwarded to 192.168.10.11
+end note
+
+@enduml

@@ -317,6 +317,7 @@ sudo tee /etc/bind/db.ti.mimas.net >/dev/null <<EOF2
 ns1     IN  A   192.168.10.11
 @       IN  A   192.168.10.11
 
+www     IN  A   192.168.10.20
 db      IN  A   192.168.30.20
 lb1     IN  A   192.168.10.20
 lb2     IN  A   192.168.10.21
