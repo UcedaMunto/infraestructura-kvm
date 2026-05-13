@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guia manual de arranque de VMs</title>
+  <style>
+    :root {
+      --bg: #f7f6f2;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #4b5563;
+      --border: #d1d5db;
+      --code-bg: #111827;
+      --code-text: #e5e7eb;
+      --accent: #0f766e;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Noto Sans", sans-serif;
+      background: radial-gradient(circle at top right, #e9f5f2, var(--bg) 45%);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      color: var(--accent);
+    }
+
+    p {
+      margin: 0 0 8px;
+      color: var(--muted);
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin: 12px 0;
+    }
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: #0b4f4a;
+    }
+
+    ol {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    li {
+      margin: 8px 0;
+    }
+
+    .desc {
+      display: block;
+      margin: 2px 0 4px;
+      color: var(--muted);
+    }
+
+    code {
+      display: block;
+      background: var(--code-bg);
+      color: var(--code-text);
+      border-radius: 6px;
+      padding: 7px 8px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "IBM Plex Mono", "DejaVu Sans Mono", monospace;
+      font-size: 11px;
+    }
+
+    .note {
+      border-left: 3px solid #f59e0b;
+      padding-left: 8px;
+      color: #78350f;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>Guia manual de arranque de VMs (sin scripts)</h1>
+    <p>Secuencia manual con comandos directos. Copia y ejecuta uno por uno.</p>
+    <p class="note">No usa funciones, for, if, while ni sleep.</p>
+
+    <section class="card">
+      <h2>0) Verificacion rapida</h2>
+      <ol>
+        <li>
+          <span class="desc">Comprueba que libvirt responde.</span>
+          <code>virsh list --all</code>
+        </li>
+        <li>
+          <span class="desc">Lista nombres de VMs disponibles.</span>
+          <code>virsh list --all --name</code>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>1) DNS</h2>
+      <ol>
+        <li>
+          <span class="desc">Arranca DNS principal.</span>
+          <code>virsh start dns-principal</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado de DNS principal.</span>
+          <code>virsh domstate dns-principal</code>
+        </li>
+        <li>
+          <span class="desc">Arranca DNS delegado.</span>
+          <code>virsh start dns-delegado</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado de DNS delegado.</span>
+          <code>virsh domstate dns-delegado</code>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>2) Datos (MariaDB / MaxScale)</h2>
+      <ol>
+        <li>
+          <span class="desc">Arranca nodo MariaDB 1.</span>
+          <code>virsh start mariadb-1</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado MariaDB 1.</span>
+          <code>virsh domstate mariadb-1</code>
+        </li>
+        <li>
+          <span class="desc">Arranca nodo MariaDB 2.</span>
+          <code>virsh start mariadb-2</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado MariaDB 2.</span>
+          <code>virsh domstate mariadb-2</code>
+        </li>
+        <li>
+          <span class="desc">Arranca nodo MariaDB 3.</span>
+          <code>virsh start mariadb-3</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado MariaDB 3.</span>
+          <code>virsh domstate mariadb-3</code>
+        </li>
+        <li>
+          <span class="desc">Arranca MaxScale.</span>
+          <code>virsh start maxscale-1</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado de MaxScale.</span>
+          <code>virsh domstate maxscale-1</code>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>3) Redis Cluster (7 nodos)</h2>
+      <ol>
+        <li>
+          <span class="desc">Arranca Redis 1.</span>
+          <code>virsh start redis-1</code>
+        </li>
+        <li>
+          <span class="desc">Arranca Redis 2.</span>
+          <code>virsh start redis-2</code>
+        </li>
+        <li>
+          <span class="desc">Arranca Redis 3.</span>
+          <code>virsh start redis-3</code>
+        </li>
+        <li>
+          <span class="desc">Arranca Redis 4.</span>
+          <code>virsh start redis-4</code>
+        </li>
+        <li>
+          <span class="desc">Arranca Redis 5.</span>
+          <code>virsh start redis-5</code>
+        </li>
+        <li>
+          <span class="desc">Arranca Redis 6.</span>
+          <code>virsh start redis-6</code>
+        </li>
+        <li>
+          <span class="desc">Arranca Redis 7.</span>
+          <code>virsh start redis-7</code>
+        </li>
+        <li>
+          <span class="desc">Valida el estado de todos los nodos Redis.</span>
+          <code>virsh domstate redis-1 && virsh domstate redis-2 && virsh domstate redis-3 && virsh domstate redis-4 && virsh domstate redis-5 && virsh domstate redis-6 && virsh domstate redis-7</code>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>4) Aplicacion backend (Winter actual)</h2>
+      <ol>
+        <li>
+          <span class="desc">Arranca app Winter 1.</span>
+          <code>virsh start appWinter1</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado app Winter 1.</span>
+          <code>virsh domstate appWinter1</code>
+        </li>
+        <li>
+          <span class="desc">Arranca app Winter 2.</span>
+          <code>virsh start appWinter2</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado app Winter 2.</span>
+          <code>virsh domstate appWinter2</code>
+        </li>
+        <li>
+          <span class="desc">Arranca app Winter 3.</span>
+          <code>virsh start appWinter3</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado app Winter 3.</span>
+          <code>virsh domstate appWinter3</code>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>Nota de stack</h2>
+      <ol>
+        <li>
+          <span class="desc">Arranque automatico por stack (recomendado).</span>
+          <code>APP_STACK=winter bash configuraciones-run.sh</code>
+        </li>
+        <li>
+          <span class="desc">Si deseas operar Django en lugar de Winter.</span>
+          <code>APP_STACK=django bash configuraciones-run.sh</code>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>5) Balanceadores</h2>
+      <ol>
+        <li>
+          <span class="desc">Arranca balanceador 1.</span>
+          <code>virsh start lb1</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado de lb1.</span>
+          <code>virsh domstate lb1</code>
+        </li>
+        <li>
+          <span class="desc">Arranca balanceador 2.</span>
+          <code>virsh start lb2</code>
+        </li>
+        <li>
+          <span class="desc">Confirma estado de lb2.</span>
+          <code>virsh domstate lb2</code>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>6) Verificacion final</h2>
+      <ol>
+        <li>
+          <span class="desc">Revisa estado global de todas las VMs.</span>
+          <code>virsh list --all</code>
+        </li>
+        <li>
+          <span class="desc">Valida estado del cluster Redis desde redis-1.</span>
+          <code>ssh -i ssh-keys/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null userinfrakv@192.168.30.10 "redis-cli -h 127.0.0.1 cluster info | egrep 'cluster_state|cluster_known_nodes'"</code>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>Chequeo SSH opcional (manual, sin bucles)</h2>
+      <ol>
+        <li>
+          <span class="desc">DNS principal.</span>
+          <code>ssh -i ssh-keys/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null userinfrakv@192.168.10.10 "echo ok"</code>
+        </li>
+        <li>
+          <span class="desc">DNS delegado.</span>
+          <code>ssh -i ssh-keys/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null userinfrakv@192.168.10.11 "echo ok"</code>
+        </li>
+        <li>
+          <span class="desc">MaxScale.</span>
+          <code>ssh -i ssh-keys/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null userinfrakv@192.168.30.20 "echo ok"</code>
+        </li>
+      </ol>
+    </section>
+  </main>
+</body>
+</html>

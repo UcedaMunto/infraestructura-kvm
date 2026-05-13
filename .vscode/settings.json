@@ -9,6 +9,21 @@
         "/^bash configuraciones-wintercms\\.sh 9$/": {
             "approve": true,
             "matchCommandLine": true
-        }
+        },
+        "ssh": true,
+        "/^bash -n configuraciones-wintercms\\.sh$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^bash configuraciones-wintercms\\.sh 1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "ping": true,
+        "/^bash create-kvm-vm\\.sh --name redis-node-1 --ram 512 --cpu 1 --disk 5G --network default --os ubuntu-minimal$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "virsh": true
     }
 }

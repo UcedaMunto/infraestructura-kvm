@@ -10,7 +10,7 @@ set -euo pipefail
 #   bash configuraciones-despliegue.sh run-sin-mysql-pasos
 #
 # Variables opcionales:
-#   AUTO_APPROVE_DJANGO=true   # omite la pausa de confirmacion antes de Django
+#   BACKEND_STACK=winter|django
 #   INCLUDE_MYSQL_PASOS=false  # desactiva scripts/mysql-pasos.bash
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,10 +18,12 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DNS_SCRIPT="$BASE_DIR/configuraciones-dns.bash"
 MYSQL_SCRIPT="$BASE_DIR/configuraciones-mysql.sh"
 DJANGO_SCRIPT="$BASE_DIR/configuraciones-django.sh"
+WINTERCMS_SCRIPT="$BASE_DIR/configuraciones-wintercms.sh"
 NGINX_SCRIPT="$BASE_DIR/configuraciones-nginx-dominio.sh"
 MYSQL_PASOS_SCRIPT="$BASE_DIR/scripts/mysql-pasos.bash"
 
-AUTO_APPROVE_WINTERCMS="${AUTO_APPROVE_WINTERCMS:-false}"
+BACKEND_STACK="${BACKEND_STACK:-winter}"  # winter|django
+
 INCLUDE_MYSQL_PASOS="${INCLUDE_MYSQL_PASOS:-true}"
 ENABLE_LETSENCRYPT="${ENABLE_LETSENCRYPT:-false}"
 ENABLE_WILDCARD_SSL="${ENABLE_WILDCARD_SSL:-false}"
@@ -61,6 +63,7 @@ syntax_check() {
   bash -n "$DNS_SCRIPT"
   bash -n "$MYSQL_SCRIPT"
   bash -n "$DJANGO_SCRIPT"
+  bash -n "$WINTERCMS_SCRIPT"
   bash -n "$NGINX_SCRIPT"
 
   if [[ "$INCLUDE_MYSQL_PASOS" == "true" ]]; then
@@ -78,14 +81,18 @@ print_plan() {
   echo "  2) DNS: crear VMs + configurar principal y delegado + validar"
   echo "  3) MySQL infra: crear VMs de MariaDB/MaxScale"
   echo "  4) (Opcional) MySQL servicio: Galera + MaxScale (mysql-pasos)"
-  echo "  5) Crear VMs Django (automatico): appDjango1/2/3 via create-kvm-vm.sh"
-  echo "  6) Django: runtime + settings + Gunicorn + validacion"
-  echo "  5) Crear VMs WinterCMS (automatico): appWinter1/2/3 via create-kvm-vm.sh"
-  echo "  6) WinterCMS: runtime + settings + validacion"
-  echo "  7) Nginx LB: crear LBs + configurar + validar"
-  echo "  8) Nota final: si necesitas, imprimir comandos DNS manuales del LB bloque 4"
-  echo "  9) (Opcional) HTTPS/SSL con Let's Encrypt para django1.ti.mimas.net y app1.ti.mimas.net"
-  echo "  10) (Opcional) Wildcard SSL local (*.ti.mimas.net) para django1/app1"
+  if [[ "$BACKEND_STACK" == "django" ]]; then
+    echo "  5) Crear VMs Django (automatico): appDjango1/2/3"
+    echo "  6) Django: runtime + settings + Gunicorn + validacion"
+    echo "  7) Nginx dominio: crear LBs + configurar + validar"
+  else
+    echo "  5) Redis cluster: crear redis-1..redis-7 (minimo), configurar y validar"
+    echo "  6) WinterCMS: crear VMs + instalar + validar cluster"
+    echo "  7) WinterCMS: configurar LBs + validar"
+  fi
+  echo "  8) Nota final: comandos DNS manuales del LB (informativo)"
+  echo "  9) (Opcional) HTTPS/SSL con Let's Encrypt"
+  echo "  10) (Opcional) Wildcard SSL local (*.ti.mimas.net)"
 }
 
 run_checked() {
@@ -155,6 +162,11 @@ confirm_django_manual_creation() {
 }
 
 run_full_deploy() {
+  if [[ "$BACKEND_STACK" != "winter" && "$BACKEND_STACK" != "django" ]]; then
+    err "BACKEND_STACK invalido: $BACKEND_STACK (valores: winter|django)"
+    exit 1
+  fi
+
   print_plan
 
   step "Redes base"
@@ -176,14 +188,19 @@ run_full_deploy() {
     log "INCLUDE_MYSQL_PASOS=false, se omite configuracion de servicio MySQL"
   fi
 
-  step "Crear VMs Django (automatico)"
-  run_checked "$WINTERCMS_SCRIPT" create-vms
+  if [[ "$BACKEND_STACK" == "django" ]]; then
+    step "Crear VMs Django (automatico)"
+    run_checked "$DJANGO_SCRIPT" create-vms
 
-  step "Django completo"
-  run_checked "$WINTERCMS_SCRIPT" all
+    step "Django completo"
+    run_checked "$DJANGO_SCRIPT" all
 
-  step "Nginx dominio completo"
-  run_checked "$NGINX_SCRIPT" all
+    step "Nginx dominio completo"
+    run_checked "$NGINX_SCRIPT" all
+  else
+    step "WinterCMS completo"
+    run_checked "$WINTERCMS_SCRIPT" all
+  fi
 
   if [[ "$ENABLE_LETSENCRYPT" == "true" ]]; then
     step "Let's Encrypt (HTTPS/SSL)"
@@ -221,7 +238,7 @@ Acciones:
   run-sin-mysql-pasos   Ejecuta despliegue sin scripts/mysql-pasos.bash
 
 Variables opcionales:
-  AUTO_APPROVE_DJANGO=true
+  BACKEND_STACK=winter|django
   INCLUDE_MYSQL_PASOS=false
   ENABLE_LETSENCRYPT=true
   LE_EMAIL=admin@dominio.com

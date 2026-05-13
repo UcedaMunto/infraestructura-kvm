@@ -4,15 +4,16 @@
 
 1. [Conexiones SSH](#conexiones-ssh)
 2. [Comandos Globales](#comandos-globales)
-3. [DNS](#dns)
-4. [NGINX Load Balancers](#nginx-load-balancers)
-5. [Django Apps](#django-apps)
-6. [Redis](#redis)
-7. [MySQL/MariaDB](#mysqlmariadb)
-8. [MaxScale](#maxscale)
-9. [Ceph Storage](#ceph-storage)
-10. [Monitorización](#monitorización)
-11. [Troubleshooting](#troubleshooting)
+3. [WinterCMS Temporal](#wintercms-temporal)
+4. [DNS](#dns)
+5. [NGINX Load Balancers](#nginx-load-balancers)
+6. [Django Apps](#django-apps)
+7. [Redis](#redis)
+8. [MySQL/MariaDB](#mysqlmariadb)
+9. [MaxScale](#maxscale)
+10. [Ceph Storage](#ceph-storage)
+11. [Monitorización](#monitorización)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -102,6 +103,71 @@ for ip in 192.168.20.10 192.168.20.11 192.168.20.12 \
   echo "=== $ip ==="
   ssh -i $KEY $SSH_OPTS userinfrakv@$ip "hostname; uptime" 2>/dev/null || echo "SSH FAIL"
 done
+```
+
+### Arranque y apagado por stack de aplicacion
+
+```bash
+# AUTO (por defecto): usa Winter si existen appWinter1/2/3, si no usa Django
+bash configuraciones-run.sh
+bash configuraciones-stop.sh
+
+# Forzar stack Django
+APP_STACK=django bash configuraciones-run.sh
+APP_STACK=django bash configuraciones-stop.sh
+
+# Forzar stack Winter
+APP_STACK=winter bash configuraciones-run.sh
+APP_STACK=winter bash configuraciones-stop.sh
+```
+
+---
+
+## WinterCMS Temporal
+
+Este flujo usa las mismas IPs backend de Django: 192.168.20.10, 192.168.20.11, 192.168.20.12.
+
+- MariaDB cluster via MaxScale: 192.168.30.20:4008
+- Redis sesiones/cache: 192.168.30.20:6379 (DB 1)
+- Bloque de limpieza final: borra VMs Winter y discos
+
+### Flujo recomendado
+
+```bash
+cd ~/Documents/cluster-ceph/proyecto-manual-infraestructura
+
+# 1) Liberar IPs de Django y preparar parametros
+bash configuraciones-wintercms.sh 1
+bash configuraciones-wintercms.sh 2
+bash configuraciones-wintercms.sh 3
+
+# 2) Crear e instalar Winter por nodo
+bash configuraciones-wintercms.sh 4
+bash configuraciones-wintercms.sh 5
+bash configuraciones-wintercms.sh 6
+bash configuraciones-wintercms.sh 7
+bash configuraciones-wintercms.sh 8
+bash configuraciones-wintercms.sh 9
+
+# 3) Validar nodos y balanceadores
+bash configuraciones-wintercms.sh 10
+bash configuraciones-wintercms.sh 11
+bash configuraciones-wintercms.sh 12
+bash configuraciones-wintercms.sh 13
+
+# 4) Si hace falta corregir permisos runtime
+bash configuraciones-wintercms.sh 14
+
+# 5) Al finalizar pruebas, limpiar Winter (destructivo)
+bash configuraciones-wintercms.sh 15
+```
+
+### Comandos de creacion de VMs Winter
+
+```bash
+bash configuraciones-wintercms.sh 16
+# o equivalente
+bash configuraciones-wintercms.sh create-vms-commands
 ```
 
 ### Monitorización de recursos

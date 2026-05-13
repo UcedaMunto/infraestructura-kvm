@@ -5,7 +5,7 @@ set -euo pipefail
 # Fases:
 # 1) DNS
 # 2) Base de datos y capa de datos
-# 3) Aplicacion Django
+# 3) Aplicacion (Django o Winter)
 # 4) Balanceadores
 # 5) Otras VMs definidas (si existen)
 
@@ -14,6 +14,7 @@ SSH_KEY="${SSH_KEY:-$(cd "$(dirname "$0")" && pwd)/ssh-keys/id_rsa}"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
 WAIT_VM_TIMEOUT="${WAIT_VM_TIMEOUT:-120}"
 WAIT_SSH_TIMEOUT="${WAIT_SSH_TIMEOUT:-180}"
+APP_STACK="${APP_STACK:-auto}"  # auto|django|winter
 
 declare -A VM_IPS=(
   [dns-principal]="192.168.10.10"
@@ -22,16 +23,27 @@ declare -A VM_IPS=(
   [mariadb-2]="192.168.30.22"
   [mariadb-3]="192.168.30.23"
   [maxscale-1]="192.168.30.20"
+  [redis-1]="192.168.30.10"
+  [redis-2]="192.168.30.11"
+  [redis-3]="192.168.30.12"
+  [redis-4]="192.168.30.13"
+  [redis-5]="192.168.30.14"
+  [redis-6]="192.168.30.15"
+  [redis-7]="192.168.30.16"
   [appDjango1]="192.168.20.10"
   [appDjango2]="192.168.20.11"
   [appDjango3]="192.168.20.12"
+  [appWinter1]="192.168.20.10"
+  [appWinter2]="192.168.20.11"
+  [appWinter3]="192.168.20.12"
   [lb1]="192.168.10.20"
   [lb2]="192.168.10.21"
 )
 
 GROUP_DNS=(dns-principal dns-delegado)
-GROUP_DATA=(mariadb-1 mariadb-2 mariadb-3 maxscale-1)
-GROUP_APP=(appDjango1 appDjango2 appDjango3)
+GROUP_DATA=(mariadb-1 mariadb-2 mariadb-3 maxscale-1 redis-1 redis-2 redis-3 redis-4 redis-5 redis-6 redis-7)
+GROUP_APP_DJANGO=(appDjango1 appDjango2 appDjango3)
+GROUP_APP_WINTER=(appWinter1 appWinter2 appWinter3)
 GROUP_LB=(lb1 lb2)
 
 if ! command -v virsh >/dev/null 2>&1; then
@@ -54,6 +66,46 @@ done
 vm_exists() {
   local vm="$1"
   [[ -n "${EXISTS[$vm]:-}" ]]
+}
+
+is_any_app_vm() {
+  local vm="$1"
+  case "$vm" in
+    appDjango1|appDjango2|appDjango3|appWinter1|appWinter2|appWinter3) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+resolve_app_group() {
+  local -n out_group_ref="$1"
+  local -n out_label_ref="$2"
+
+  case "$APP_STACK" in
+    django)
+      out_group_ref=("${GROUP_APP_DJANGO[@]}")
+      out_label_ref="Django"
+      return 0
+      ;;
+    winter)
+      out_group_ref=("${GROUP_APP_WINTER[@]}")
+      out_label_ref="Winter"
+      return 0
+      ;;
+    auto)
+      if vm_exists "appWinter1" || vm_exists "appWinter2" || vm_exists "appWinter3"; then
+        out_group_ref=("${GROUP_APP_WINTER[@]}")
+        out_label_ref="Winter (auto)"
+      else
+        out_group_ref=("${GROUP_APP_DJANGO[@]}")
+        out_label_ref="Django (auto)"
+      fi
+      return 0
+      ;;
+    *)
+      echo "[ERROR] APP_STACK invalido: $APP_STACK (valores: auto|django|winter)"
+      exit 1
+      ;;
+  esac
 }
 
 wait_vm_running() {
@@ -135,15 +187,25 @@ start_group() {
   done
 }
 
+APP_GROUP=()
+APP_LABEL=""
+resolve_app_group APP_GROUP APP_LABEL
+echo "[INFO] Stack de aplicacion seleccionado: $APP_LABEL"
+
 start_group "Fase 1 - DNS" "${GROUP_DNS[@]}"
 start_group "Fase 2 - Datos (MariaDB/MaxScale)" "${GROUP_DATA[@]}"
-start_group "Fase 3 - Aplicacion (Django)" "${GROUP_APP[@]}"
+start_group "Fase 3 - Aplicacion ($APP_LABEL)" "${APP_GROUP[@]}"
 start_group "Fase 4 - Balanceadores" "${GROUP_LB[@]}"
 
 echo
 echo "=== Fase 5 - VMs restantes ==="
 for vm in "${ALL_VMS[@]}"; do
   if [[ -n "${STARTED[$vm]:-}" ]]; then
+    continue
+  fi
+  # Evita encender el stack de aplicacion no seleccionado.
+  if is_any_app_vm "$vm"; then
+    echo "[SKIP] $vm pertenece a otro stack de aplicacion"
     continue
   fi
   start_vm_if_needed "$vm"

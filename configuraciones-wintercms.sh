@@ -13,7 +13,15 @@ set -euo pipefail
 #   bash configuraciones-wintercms.sh 8   # Crear VM Winter 3
 #   bash configuraciones-wintercms.sh 9   # Instalar WinterCMS en VM Winter 3
 #   bash configuraciones-wintercms.sh 10  # Validar cluster Winter
-#   bash configuraciones-wintercms.sh all # Flujo completo (1 -> 10)
+#   bash configuraciones-wintercms.sh 17  # Crear VM redis-1 (minima)
+#   bash configuraciones-wintercms.sh 18  # Crear VMs redis-2..redis-7 (minimas)
+#   bash configuraciones-wintercms.sh 19  # Instalar/ajustar Redis cluster en 7 nodos
+#   bash configuraciones-wintercms.sh 20  # Bootstrap Redis cluster (7 nodos)
+#   bash configuraciones-wintercms.sh 21  # Validar Redis cluster
+#   bash configuraciones-wintercms.sh create-vms # Crear las 3 VMs Winter
+#   bash configuraciones-wintercms.sh 15  # Borrar VMs Winter (destructivo)
+#   bash configuraciones-wintercms.sh 16  # Mostrar comandos para crear VMs Winter
+#   bash configuraciones-wintercms.sh all # Flujo completo (1 -> 14 + Redis 17 -> 21)
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CREATE_VM_SCRIPT="${CREATE_VM_SCRIPT:-$BASE_DIR/create-kvm-vm.sh}"
@@ -46,9 +54,9 @@ APP_USER="${APP_USER:-winter}"
 APP_GROUP="${APP_GROUP:-winter}"
 APP_BASE_DIR="${APP_BASE_DIR:-/opt/apps}"
 PROJECT_DIR="${PROJECT_DIR:-/opt/apps/wintercms}"
-APP_URL_1="${APP_URL_1:-https://django1.ti.mimas.net}"
-APP_URL_2="${APP_URL_2:-https://django2.ti.mimas.net}"
-APP_URL_3="${APP_URL_3:-https://django3.ti.mimas.net}"
+APP_URL_1="${APP_URL_1:-https://app1.ti.mimas.net}"
+APP_URL_2="${APP_URL_2:-https://app2.ti.mimas.net}"
+APP_URL_3="${APP_URL_3:-https://app3.ti.mimas.net}"
 
 # Bloque MySQL separado: apuntamos al cluster existente por MaxScale.
 DB_HOST="${DB_HOST:-192.168.30.20}"
@@ -56,14 +64,52 @@ DB_PORT="${DB_PORT:-4008}"
 DB_NAME="${DB_NAME:-appdb}"
 DB_USER="${DB_USER:-appuser}"
 DB_PASSWORD="${DB_PASSWORD:-app-pass-2620}"
+DB_ADMIN_NODE="${DB_ADMIN_NODE:-192.168.30.21}"
+AUTO_FIX_DB_GRANTS="${AUTO_FIX_DB_GRANTS:-true}"
+
+REDIS_HOST="${REDIS_HOST:-192.168.30.10}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_DB="${REDIS_DB:-0}"
+REDIS_USER="${REDIS_USER:-}"
+REDIS_USERNAME="${REDIS_USERNAME:-$REDIS_USER}"
+REDIS_PASSWORD="${REDIS_PASSWORD:-}"
+REDIS_PREFIX="${REDIS_PREFIX:-{k3}_}"
+
+REDIS_VM1="${REDIS_VM1:-redis-1}"
+REDIS_VM2="${REDIS_VM2:-redis-2}"
+REDIS_VM3="${REDIS_VM3:-redis-3}"
+REDIS_VM4="${REDIS_VM4:-redis-4}"
+REDIS_VM5="${REDIS_VM5:-redis-5}"
+REDIS_VM6="${REDIS_VM6:-redis-6}"
+REDIS_VM7="${REDIS_VM7:-redis-7}"
+
+REDIS_IP1="${REDIS_IP1:-192.168.30.10}"
+REDIS_IP2="${REDIS_IP2:-192.168.30.11}"
+REDIS_IP3="${REDIS_IP3:-192.168.30.12}"
+REDIS_IP4="${REDIS_IP4:-192.168.30.13}"
+REDIS_IP5="${REDIS_IP5:-192.168.30.14}"
+REDIS_IP6="${REDIS_IP6:-192.168.30.15}"
+REDIS_IP7="${REDIS_IP7:-192.168.30.16}"
+
+REDIS_CLUSTER_NODES=(
+  "$REDIS_IP1:$REDIS_PORT"
+  "$REDIS_IP2:$REDIS_PORT"
+  "$REDIS_IP3:$REDIS_PORT"
+  "$REDIS_IP4:$REDIS_PORT"
+  "$REDIS_IP5:$REDIS_PORT"
+  "$REDIS_IP6:$REDIS_PORT"
+  "$REDIS_IP7:$REDIS_PORT"
+)
+
+REDIS_CLUSTER_NODES_CSV="${REDIS_CLUSTER_NODES_CSV:-$REDIS_IP1:$REDIS_PORT,$REDIS_IP2:$REDIS_PORT,$REDIS_IP3:$REDIS_PORT,$REDIS_IP4:$REDIS_PORT,$REDIS_IP5:$REDIS_PORT,$REDIS_IP6:$REDIS_PORT,$REDIS_IP7:$REDIS_PORT}"
 
 # Se usa para pruebas HTTP locales en las VMs.
-HOST_HEADER_1="${HOST_HEADER_1:-django1.ti.mimas.net}"
-HOST_HEADER_2="${HOST_HEADER_2:-django2.ti.mimas.net}"
-HOST_HEADER_3="${HOST_HEADER_3:-django3.ti.mimas.net}"
-WINTER_LB_HOSTS="${WINTER_LB_HOSTS:-django1.ti.mimas.net django2.ti.mimas.net django3.ti.mimas.net www.ti.mimas.net}"
+HOST_HEADER_1="${HOST_HEADER_1:-app1.ti.mimas.net}"
+HOST_HEADER_2="${HOST_HEADER_2:-app2.ti.mimas.net}"
+HOST_HEADER_3="${HOST_HEADER_3:-app3.ti.mimas.net}"
+WINTER_LB_HOSTS="${WINTER_LB_HOSTS:-app1.ti.mimas.net app2.ti.mimas.net app3.ti.mimas.net www.ti.mimas.net api.ti.mimas.net}"
 
-EXTRA_HOSTS="${EXTRA_HOSTS:-192.168.10.10 ns1.mimas.net dns-principal;192.168.10.11 ns1.ti.mimas.net dns-delegado;192.168.10.20 lb1.ti.mimas.net lb1;192.168.10.21 lb2.ti.mimas.net lb2;192.168.20.10 winter1.ti.mimas.net appWinter1;192.168.20.11 winter2.ti.mimas.net appWinter2;192.168.20.12 winter3.ti.mimas.net appWinter3;192.168.30.20 db.ti.mimas.net maxscale-1}"
+EXTRA_HOSTS="${EXTRA_HOSTS:-192.168.10.10 ns1.mimas.net dns-principal;192.168.10.11 ns1.ti.mimas.net dns-delegado;192.168.10.20 lb1.ti.mimas.net lb1;192.168.10.21 lb2.ti.mimas.net lb2;192.168.20.10 winter1.ti.mimas.net appWinter1;192.168.20.11 winter2.ti.mimas.net appWinter2;192.168.20.12 winter3.ti.mimas.net appWinter3;192.168.30.20 db.ti.mimas.net maxscale-1;192.168.30.10 redis.ti.mimas.net redis-1;192.168.30.10 redis1.ti.mimas.net redis-1;192.168.30.11 redis2.ti.mimas.net redis-2;192.168.30.12 redis3.ti.mimas.net redis-3;192.168.30.13 redis4.ti.mimas.net redis-4;192.168.30.14 redis5.ti.mimas.net redis-5;192.168.30.15 redis6.ti.mimas.net redis-6;192.168.30.16 redis7.ti.mimas.net redis-7}"
 
 if [[ ! -x "$CREATE_VM_SCRIPT" ]]; then
   echo "[ERROR] No se encontro script ejecutable: $CREATE_VM_SCRIPT"
@@ -180,10 +226,41 @@ block_3_mysql_cluster_settings() {
   echo "[INFO] Cluster MySQL via MaxScale: $DB_HOST:$DB_PORT"
   echo "[INFO] Base de datos WinterCMS: $DB_NAME"
   echo "[INFO] Usuario de aplicacion: $DB_USER"
+  echo "[INFO] Redis sesiones: $REDIS_HOST:$REDIS_PORT db=$REDIS_DB"
+  echo "[INFO] Redis prefix (hash-tag fijo): $REDIS_PREFIX"
+  if [[ -z "$REDIS_PASSWORD" ]]; then
+    echo "[INFO] Redis password: vacio (sin AUTH)"
+  else
+    echo "[INFO] Redis password: configurado"
+  fi
 
   if [[ -z "$DB_PASSWORD" ]]; then
     echo "[ERROR] DB_PASSWORD vacio"
     exit 1
+  fi
+
+  if [[ -z "$REDIS_HOST" || -z "$REDIS_PORT" ]]; then
+    echo "[ERROR] Configuracion Redis incompleta"
+    exit 1
+  fi
+
+  if [[ "$AUTO_FIX_DB_GRANTS" == "true" ]]; then
+    echo "[INFO] Asegurando grants SQL para nodos Winter (opcional)"
+    if ! ssh_cmd "$DB_ADMIN_NODE" "DB_USER='$DB_USER' DB_PASSWORD='$DB_PASSWORD' DB_NAME='$DB_NAME' sudo -E bash -s" <<'REMOTE'
+set -euo pipefail
+sudo mariadb -e "
+CREATE USER IF NOT EXISTS '${DB_USER}'@'192.168.30.%' IDENTIFIED BY '${DB_PASSWORD}';
+CREATE USER IF NOT EXISTS '${DB_USER}'@'192.168.20.%' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'192.168.30.%';
+GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'192.168.20.%';
+FLUSH PRIVILEGES;
+"
+REMOTE
+    then
+      echo "[WARN] No se pudieron aplicar grants automaticamente; continuaras con los grants existentes"
+    else
+      echo "[OK] Grants SQL verificados/aplicados para ${DB_USER}"
+    fi
   fi
 
   echo "[OK] Bloque MySQL validado"
@@ -225,6 +302,169 @@ block_8_create_vm3() {
   wait_for_ssh_node "$WINTER_IP3"
 }
 
+block_create_vms() {
+  block_4_create_vm1
+  block_6_create_vm2
+  block_8_create_vm3
+  echo "[OK] Las 3 VMs Winter fueron creadas/procesadas"
+}
+
+create_redis_vm() {
+  local vm_name="$1"
+  local vm_hostname="$2"
+  local ip_db_iface="$3"
+
+  echo "[INFO] Creando $vm_name ($vm_hostname)"
+  bash "$CREATE_VM_SCRIPT" \
+    --name "$vm_name" \
+    --hostname "$vm_hostname" \
+    --user "$SSH_USER" \
+    --password "$VM_PASSWORD" \
+    --ram 512 \
+    --vcpus 1 \
+    --system-disk 8 \
+    --data-disk 0 \
+    --libvirt-nets "$NETWORK_DB" \
+    --ifaces "enp1s0,${ip_db_iface}/24,192.168.30.1,192.168.10.10,8.8.8.8" \
+    --extra-hosts "$EXTRA_HOSTS"
+}
+
+configure_redis_node() {
+  local ip="$1"
+
+  wait_for_ssh_node "$ip"
+  prepare_node_package_manager "$ip"
+
+  ssh_cmd "$ip" "REDIS_BIND_IP='$ip' REDIS_PORT='$REDIS_PORT' REDIS_PASSWORD='$REDIS_PASSWORD' sudo -E bash -s" <<'REMOTE'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends redis-server redis-tools
+
+if [[ ! -f /etc/redis/redis.conf ]]; then
+  echo "[ERROR] No existe /etc/redis/redis.conf"
+  exit 1
+fi
+
+sed -i -E "s/^bind .*/bind 0.0.0.0/" /etc/redis/redis.conf
+sed -i -E "s/^#?port .*/port ${REDIS_PORT}/" /etc/redis/redis.conf
+sed -i -E "s/^#?protected-mode .*/protected-mode yes/" /etc/redis/redis.conf
+sed -i -E "s/^#?cluster-enabled .*/cluster-enabled yes/" /etc/redis/redis.conf
+sed -i -E "s|^#?cluster-config-file .*|cluster-config-file /var/lib/redis/nodes.conf|" /etc/redis/redis.conf
+sed -i -E "s/^#?cluster-node-timeout .*/cluster-node-timeout 5000/" /etc/redis/redis.conf
+sed -i -E "s/^#?appendonly .*/appendonly yes/" /etc/redis/redis.conf
+
+if [[ -n "$REDIS_PASSWORD" ]]; then
+  if grep -q '^requirepass ' /etc/redis/redis.conf; then
+    sed -i -E "s|^requirepass .*|requirepass ${REDIS_PASSWORD}|" /etc/redis/redis.conf
+  else
+    printf '\nrequirepass %s\n' "$REDIS_PASSWORD" >> /etc/redis/redis.conf
+  fi
+
+  if grep -q '^masterauth ' /etc/redis/redis.conf; then
+    sed -i -E "s|^masterauth .*|masterauth ${REDIS_PASSWORD}|" /etc/redis/redis.conf
+  else
+    printf 'masterauth %s\n' "$REDIS_PASSWORD" >> /etc/redis/redis.conf
+  fi
+else
+  sed -i -E '/^requirepass /d' /etc/redis/redis.conf
+  sed -i -E '/^masterauth /d' /etc/redis/redis.conf
+fi
+
+install -d -m 750 -o redis -g redis /var/lib/redis
+chown redis:redis /var/lib/redis
+
+systemctl enable redis-server
+systemctl restart redis-server
+systemctl is-active redis-server
+
+ss -ltnp | grep ":${REDIS_PORT} " || true
+REMOTE
+}
+
+block_17_create_redis_vm1() {
+  create_redis_vm "$REDIS_VM1" "redis1.ti.mimas.net" "$REDIS_IP1"
+  wait_for_ssh_node "$REDIS_IP1"
+  echo "[OK] VM Redis 1 lista ($REDIS_IP1)"
+}
+
+block_18_create_redis_vm2_to_7() {
+  create_redis_vm "$REDIS_VM2" "redis2.ti.mimas.net" "$REDIS_IP2"
+  create_redis_vm "$REDIS_VM3" "redis3.ti.mimas.net" "$REDIS_IP3"
+  create_redis_vm "$REDIS_VM4" "redis4.ti.mimas.net" "$REDIS_IP4"
+  create_redis_vm "$REDIS_VM5" "redis5.ti.mimas.net" "$REDIS_IP5"
+  create_redis_vm "$REDIS_VM6" "redis6.ti.mimas.net" "$REDIS_IP6"
+  create_redis_vm "$REDIS_VM7" "redis7.ti.mimas.net" "$REDIS_IP7"
+
+  wait_for_ssh_node "$REDIS_IP2"
+  wait_for_ssh_node "$REDIS_IP3"
+  wait_for_ssh_node "$REDIS_IP4"
+  wait_for_ssh_node "$REDIS_IP5"
+  wait_for_ssh_node "$REDIS_IP6"
+  wait_for_ssh_node "$REDIS_IP7"
+  echo "[OK] VMs Redis 2..7 listas"
+}
+
+block_19_install_redis_cluster_nodes() {
+  configure_redis_node "$REDIS_IP1"
+  configure_redis_node "$REDIS_IP2"
+  configure_redis_node "$REDIS_IP3"
+  configure_redis_node "$REDIS_IP4"
+  configure_redis_node "$REDIS_IP5"
+  configure_redis_node "$REDIS_IP6"
+  configure_redis_node "$REDIS_IP7"
+  echo "[OK] Redis instalado/configurado en los 7 nodos"
+}
+
+block_20_bootstrap_redis_cluster() {
+  local nodes_csv
+  nodes_csv="${REDIS_CLUSTER_NODES[*]}"
+
+  wait_for_ssh_node "$REDIS_IP1"
+  ssh_cmd "$REDIS_IP1" "REDIS_PASSWORD='$REDIS_PASSWORD' REDIS_PORT='$REDIS_PORT' NODES='$nodes_csv' sudo -E bash -s" <<'REMOTE'
+set -euo pipefail
+
+read -r -a NODES_ARR <<< "$NODES"
+
+if [[ -n "$REDIS_PASSWORD" ]]; then
+  if redis-cli -h 127.0.0.1 -p "$REDIS_PORT" -a "$REDIS_PASSWORD" cluster info 2>/dev/null | grep -q 'cluster_state:ok'; then
+    echo "[INFO] Cluster Redis ya estaba inicializado"
+    exit 0
+  fi
+  yes yes | redis-cli --cluster create "${NODES_ARR[@]}" --cluster-replicas 1 -a "$REDIS_PASSWORD"
+else
+  if redis-cli -h 127.0.0.1 -p "$REDIS_PORT" cluster info 2>/dev/null | grep -q 'cluster_state:ok'; then
+    echo "[INFO] Cluster Redis ya estaba inicializado"
+    exit 0
+  fi
+  yes yes | redis-cli --cluster create "${NODES_ARR[@]}" --cluster-replicas 1
+fi
+REMOTE
+
+  echo "[OK] Bootstrap de cluster Redis completado"
+}
+
+block_21_validate_redis_cluster() {
+  wait_for_ssh_node "$REDIS_IP1"
+
+  if [[ -n "$REDIS_PASSWORD" ]]; then
+    ssh_cmd "$REDIS_IP1" "REDIS_PASSWORD='$REDIS_PASSWORD' REDIS_PORT='$REDIS_PORT' sudo -E bash -s" <<'REMOTE'
+set -euo pipefail
+redis-cli -h 127.0.0.1 -p "$REDIS_PORT" -a "$REDIS_PASSWORD" cluster info | grep -E 'cluster_state:ok|cluster_known_nodes:7'
+redis-cli -h 127.0.0.1 -p "$REDIS_PORT" -a "$REDIS_PASSWORD" cluster nodes | wc -l
+REMOTE
+  else
+    ssh_cmd "$REDIS_IP1" "REDIS_PORT='$REDIS_PORT' sudo -E bash -s" <<'REMOTE'
+set -euo pipefail
+redis-cli -h 127.0.0.1 -p "$REDIS_PORT" cluster info | grep -E 'cluster_state:ok|cluster_known_nodes:7'
+redis-cli -h 127.0.0.1 -p "$REDIS_PORT" cluster nodes | wc -l
+REMOTE
+  fi
+
+  echo "[OK] Cluster Redis validado (7 nodos)"
+}
+
 install_wintercms_node() {
   local ip="$1"
   local app_url="$2"
@@ -233,7 +473,7 @@ install_wintercms_node() {
   wait_for_ssh_node "$ip"
   prepare_node_package_manager "$ip"
 
-  ssh_cmd "$ip" "APP_USER='$APP_USER' APP_GROUP='$APP_GROUP' APP_BASE_DIR='$APP_BASE_DIR' PROJECT_DIR='$PROJECT_DIR' APP_URL='$app_url' DB_HOST='$DB_HOST' DB_PORT='$DB_PORT' DB_NAME='$DB_NAME' DB_USER='$DB_USER' DB_PASSWORD='$DB_PASSWORD' HOST_HEADER='$host_header' sudo -E bash -s" <<'REMOTE'
+  ssh_cmd "$ip" "APP_USER='$APP_USER' APP_GROUP='$APP_GROUP' APP_BASE_DIR='$APP_BASE_DIR' PROJECT_DIR='$PROJECT_DIR' APP_URL='$app_url' DB_HOST='$DB_HOST' DB_PORT='$DB_PORT' DB_NAME='$DB_NAME' DB_USER='$DB_USER' DB_PASSWORD='$DB_PASSWORD' REDIS_HOST='$REDIS_HOST' REDIS_PORT='$REDIS_PORT' REDIS_DB='$REDIS_DB' REDIS_USERNAME='$REDIS_USERNAME' REDIS_PASSWORD='$REDIS_PASSWORD' REDIS_CLUSTER_NODES_CSV='$REDIS_CLUSTER_NODES_CSV' HOST_HEADER='$host_header' sudo -E bash -s" <<'REMOTE'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
@@ -241,7 +481,8 @@ apt-get update
 apt-get install -y --no-install-recommends \
   nginx \
   php-fpm php-cli php-common php-mysql php-sqlite3 php-curl php-xml php-mbstring php-zip php-gd php-intl php-bcmath \
-  curl unzip git composer mariadb-client
+  php-redis \
+  curl unzip git composer mariadb-client redis-tools
 
 systemctl enable nginx || true
 systemctl stop nginx 2>/dev/null || true
@@ -262,16 +503,44 @@ if [[ ! -f "$PROJECT_DIR/vendor/autoload.php" ]]; then
   sudo -u "$APP_USER" env COMPOSER_MEMORY_LIMIT=-1 bash -lc "cd '$PROJECT_DIR' && composer install --no-interaction --no-dev --optimize-autoloader"
 fi
 
-sed -i "s#^APP_URL=.*#APP_URL=$APP_URL#" "$PROJECT_DIR/.env"
-sed -i "s#^DB_CONNECTION=.*#DB_CONNECTION=mysql#" "$PROJECT_DIR/.env"
-sed -i "s#^DB_HOST=.*#DB_HOST=$DB_HOST#" "$PROJECT_DIR/.env"
-sed -i "s#^DB_PORT=.*#DB_PORT=$DB_PORT#" "$PROJECT_DIR/.env"
-sed -i "s#^DB_DATABASE=.*#DB_DATABASE=$DB_NAME#" "$PROJECT_DIR/.env"
-sed -i "s#^DB_USERNAME=.*#DB_USERNAME=$DB_USER#" "$PROJECT_DIR/.env"
-sed -i "s#^DB_PASSWORD=.*#DB_PASSWORD=$DB_PASSWORD#" "$PROJECT_DIR/.env"
-sed -i "s#^SESSION_SECURE_COOKIE=.*#SESSION_SECURE_COOKIE=true#" "$PROJECT_DIR/.env"
-if ! grep -q '^SESSION_SECURE_COOKIE=' "$PROJECT_DIR/.env"; then
-  printf '\nSESSION_SECURE_COOKIE=true\n' >> "$PROJECT_DIR/.env"
+upsert_env() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" "$PROJECT_DIR/.env"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$PROJECT_DIR/.env"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$PROJECT_DIR/.env"
+  fi
+}
+
+upsert_env APP_URL "$APP_URL"
+upsert_env DB_CONNECTION "mysql"
+upsert_env DB_HOST "$DB_HOST"
+upsert_env DB_PORT "$DB_PORT"
+upsert_env DB_DATABASE "$DB_NAME"
+upsert_env DB_USERNAME "$DB_USER"
+upsert_env DB_PASSWORD "$DB_PASSWORD"
+upsert_env SESSION_DRIVER "redis"
+upsert_env SESSION_CONNECTION "default"
+upsert_env SESSION_LIFETIME "120"
+upsert_env SESSION_SECURE_COOKIE "true"
+upsert_env CACHE_DRIVER "redis"
+upsert_env QUEUE_CONNECTION "database"
+upsert_env REDIS_CLIENT "phpredis"
+upsert_env REDIS_CLUSTER "redis"
+upsert_env REDIS_HOST "$REDIS_HOST"
+upsert_env REDIS_PASSWORD "$REDIS_PASSWORD"
+upsert_env REDIS_PORT "$REDIS_PORT"
+upsert_env REDIS_DB "$REDIS_DB"
+upsert_env REDIS_CACHE_DB "2"
+upsert_env REDIS_PREFIX "$REDIS_PREFIX"
+upsert_env REDIS_CLUSTER_NODES "$REDIS_CLUSTER_NODES_CSV"
+if [[ -n "$REDIS_USERNAME" ]]; then
+  upsert_env REDIS_USERNAME "$REDIS_USERNAME"
+fi
+
+if [[ -z "$REDIS_PASSWORD" ]]; then
+  upsert_env REDIS_PASSWORD ""
 fi
 
 chown "$APP_USER":"$APP_GROUP" "$PROJECT_DIR/.env"
@@ -300,6 +569,31 @@ sudo -u "$APP_USER" bash -lc "cd '$PROJECT_DIR' && php artisan view:clear" || tr
 sudo -u "$APP_USER" bash -lc "cd '$PROJECT_DIR' && php artisan package:discover --ansi"
 sudo -u "$APP_USER" bash -lc "cd '$PROJECT_DIR' && php artisan winter:up"
 
+MYSQL_PWD="$DB_PASSWORD" mysql --protocol=TCP -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" -e 'select 1' >/dev/null
+
+if [[ -n "$REDIS_PASSWORD" ]]; then
+  if redis_out="$(redis-cli -c -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping 2>&1 || true)"; then
+    :
+  fi
+  if echo "$redis_out" | grep -qi '^PONG$'; then
+    :
+  elif echo "$redis_out" | grep -qi 'AUTH .*without any password configured'; then
+    echo "[WARN] Redis no requiere password; ajustando .env con REDIS_PASSWORD vacio"
+    upsert_env REDIS_PASSWORD ""
+  else
+    echo "[ERROR] Redis ping fallo: $redis_out"
+    exit 1
+  fi
+else
+  redis-cli -c -h "$REDIS_HOST" -p "$REDIS_PORT" ping | grep -qi '^PONG$'
+fi
+
+PHP_FPM_SOCK="$(ls /run/php/php*-fpm.sock 2>/dev/null | head -n 1 || true)"
+if [[ -z "$PHP_FPM_SOCK" ]]; then
+  echo "[ERROR] No se encontro socket php-fpm en /run/php"
+  exit 1
+fi
+
 cat >/etc/nginx/sites-available/wintercms.conf <<EOF2
 server {
     listen 80;
@@ -318,7 +612,7 @@ server {
 
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
-      fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+      fastcgi_pass unix:$PHP_FPM_SOCK;
       fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         include fastcgi_params;
     }
@@ -332,8 +626,9 @@ EOF2
 rm -f /etc/nginx/sites-enabled/default
 ln -sf /etc/nginx/sites-available/wintercms.conf /etc/nginx/sites-enabled/wintercms.conf
 
-systemctl restart php8.1-fpm 2>/dev/null || true
-systemctl restart php8.2-fpm 2>/dev/null || true
+while read -r fpm_svc _; do
+  [[ -n "$fpm_svc" ]] && systemctl restart "$fpm_svc" 2>/dev/null || true
+done < <(systemctl list-unit-files 'php*-fpm.service' --no-legend 2>/dev/null)
 systemctl enable --now nginx
 systemctl restart nginx
 
@@ -360,6 +655,32 @@ block_9_install_vm3() {
   echo "[OK] Instalacion de WinterCMS completada en VM3 ($WINTER_IP3)"
 }
 
+validate_winter_data_connectivity() {
+  local ip="$1"
+
+  ssh_cmd "$ip" "DB_HOST='$DB_HOST' DB_PORT='$DB_PORT' DB_NAME='$DB_NAME' DB_USER='$DB_USER' DB_PASSWORD='$DB_PASSWORD' REDIS_HOST='$REDIS_HOST' REDIS_PORT='$REDIS_PORT' REDIS_DB='$REDIS_DB' REDIS_PASSWORD='$REDIS_PASSWORD' PROJECT_DIR='$PROJECT_DIR' APP_USER='$APP_USER' sudo -E bash -s" <<'REMOTE'
+set -euo pipefail
+
+MYSQL_PWD="$DB_PASSWORD" mysql --protocol=TCP -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" -e 'select @@hostname, @@port, database()' >/dev/null
+
+if [[ -n "$REDIS_PASSWORD" ]]; then
+  redis_out="$(redis-cli -c -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping 2>&1 || true)"
+  if echo "$redis_out" | grep -qi '^PONG$'; then
+    :
+  elif echo "$redis_out" | grep -qi 'AUTH .*without any password configured'; then
+    sed -i 's|^REDIS_PASSWORD=.*|REDIS_PASSWORD=|' "$PROJECT_DIR/.env"
+  else
+    echo "[ERROR] Redis ping fallo: $redis_out"
+    exit 1
+  fi
+else
+  redis-cli -c -h "$REDIS_HOST" -p "$REDIS_PORT" ping | grep -qi '^PONG$'
+fi
+REMOTE
+
+  echo "[OK] $ip conectado a MariaDB(MaxScale) y Redis"
+}
+
 validate_winter_node() {
   local ip="$1"
   local host_header="$2"
@@ -373,15 +694,18 @@ validate_winter_node() {
 
 block_10_validate_cluster() {
   validate_winter_node "$WINTER_IP1" "$HOST_HEADER_1"
+  validate_winter_data_connectivity "$WINTER_IP1"
 
   if ssh -i "$KEY" $SSH_OPTS "${SSH_USER}@${WINTER_IP2}" "echo ready" >/dev/null 2>&1; then
     validate_winter_node "$WINTER_IP2" "$HOST_HEADER_2"
+    validate_winter_data_connectivity "$WINTER_IP2"
   else
     echo "[WARN] VM2 no disponible, se omite validacion"
   fi
 
   if ssh -i "$KEY" $SSH_OPTS "${SSH_USER}@${WINTER_IP3}" "echo ready" >/dev/null 2>&1; then
     validate_winter_node "$WINTER_IP3" "$HOST_HEADER_3"
+    validate_winter_data_connectivity "$WINTER_IP3"
   else
     echo "[WARN] VM3 no disponible, se omite validacion"
   fi
@@ -582,6 +906,64 @@ block_14_fix_runtime_permissions() {
   echo "[OK] Permisos de runtime corregidos en los tres nodos Winter"
 }
 
+block_15_delete_winter_vms() {
+  local vm
+  for vm in "$WINTER_VM1" "$WINTER_VM2" "$WINTER_VM3" winter1 winter2 winter3; do
+    if sudo virsh dominfo "$vm" >/dev/null 2>&1; then
+      local state
+      state="$(sudo virsh domstate "$vm" | tr -d '\r')"
+      if [[ "$state" == "running" ]]; then
+        echo "[INFO] Deteniendo VM Winter activa: $vm"
+        sudo virsh destroy "$vm"
+      fi
+
+      mapfile -t disk_paths < <(sudo virsh domblklist "$vm" | awk 'NR>2 {print $2}' | grep -E '^/' || true)
+      sudo virsh undefine "$vm" --managed-save --snapshots-metadata || sudo virsh undefine "$vm"
+      for disk in "${disk_paths[@]}"; do
+        [[ -f "$disk" ]] && sudo rm -f "$disk"
+      done
+      echo "[OK] VM eliminada: $vm"
+    fi
+  done
+
+  echo "[OK] Limpieza de VMs Winter finalizada"
+  sudo virsh list --all | grep -E 'appWinter|winter[123]' || true
+}
+
+block_16_print_create_vm_commands() {
+  cat <<EOF2
+bash $CREATE_VM_SCRIPT \
+  --name $WINTER_VM1 \
+  --hostname winter1.ti.mimas.net \
+  --user $SSH_USER \
+  --password '$VM_PASSWORD' \
+  --ram 1536 --vcpus 2 --system-disk 15 --data-disk 0 \
+  --libvirt-nets '$NETWORK_BACKEND;$NETWORK_DB' \
+  --ifaces 'enp1s0,$WINTER_IP1/24,192.168.20.1,192.168.10.10,8.8.8.8;enp2s0,192.168.30.30/24,,192.168.10.10,8.8.8.8' \
+  --extra-hosts "$EXTRA_HOSTS"
+
+bash $CREATE_VM_SCRIPT \
+  --name $WINTER_VM2 \
+  --hostname winter2.ti.mimas.net \
+  --user $SSH_USER \
+  --password '$VM_PASSWORD' \
+  --ram 1536 --vcpus 2 --system-disk 15 --data-disk 0 \
+  --libvirt-nets '$NETWORK_BACKEND;$NETWORK_DB' \
+  --ifaces 'enp1s0,$WINTER_IP2/24,192.168.20.1,192.168.10.10,8.8.8.8;enp2s0,192.168.30.31/24,,192.168.10.10,8.8.8.8' \
+  --extra-hosts "$EXTRA_HOSTS"
+
+bash $CREATE_VM_SCRIPT \
+  --name $WINTER_VM3 \
+  --hostname winter3.ti.mimas.net \
+  --user $SSH_USER \
+  --password '$VM_PASSWORD' \
+  --ram 1536 --vcpus 2 --system-disk 15 --data-disk 0 \
+  --libvirt-nets '$NETWORK_BACKEND;$NETWORK_DB' \
+  --ifaces 'enp1s0,$WINTER_IP3/24,192.168.20.1,192.168.10.10,8.8.8.8;enp2s0,192.168.30.32/24,,192.168.10.10,8.8.8.8' \
+  --extra-hosts "$EXTRA_HOSTS"
+EOF2
+}
+
 usage() {
   cat <<'EOF2'
 Uso: bash configuraciones-wintercms.sh <bloque>
@@ -597,20 +979,38 @@ Bloques disponibles:
   8      Crear VM Winter 3 (1.5 GB RAM, 15 GB disco)
   9      Instalar WinterCMS en VM3
   10     Validar nodos Winter activos
+  17     Crear VM redis-1 (512MB RAM, 8GB disco)
+  18     Crear VMs redis-2..redis-7 (512MB RAM, 8GB disco)
+  19     Instalar Redis en los 7 nodos (cluster-enabled)
+  20     Crear/arrancar cluster Redis de 7 nodos
+  21     Validar cluster Redis (state ok + known_nodes=7)
+  create-vms Crear/procesar las 3 VMs Winter
   11     Publicar portadas 200 en / para los tres nodos
   12     Configurar balanceadores para WinterCMS
   13     Validar WinterCMS via balanceadores
   14     Corregir permisos runtime (storage/bootstrap/.env)
-  all    Ejecutar 1,2,3,4,5,6,7,8,9,10,11,12,13,14
+  15     BORRAR VMs Winter y discos (destructivo)
+  16     Mostrar comandos para crear VMs Winter
+  all    Ejecutar 1,2,3,17,18,19,20,21,4,5,6,7,8,9,10,11,12,13,14
 
 Flujo recomendado:
-  1 -> 2 -> 3 -> 4 -> 5
+  1 -> 2 -> 3
+  17 -> 18 -> 19 -> 20 -> 21
+  4 -> 5
   (validar VM1 limpia)
   6 -> 7
   8 -> 9
   10
   11 -> 12 -> 13
   14 si el backend muestra error de permisos
+  15 al finalizar pruebas para limpiar Winter
+
+Variables utiles para replicar:
+  DB_ADMIN_NODE=192.168.30.21
+  AUTO_FIX_DB_GRANTS=true|false
+  APP_URL_1=https://app1.ti.mimas.net (idem _2, _3)
+  HOST_HEADER_1=app1.ti.mimas.net (idem _2, _3)
+  REDIS_PREFIX={k3}_
 EOF2
 }
 
@@ -628,14 +1028,27 @@ main() {
     8) block_8_create_vm3 ;;
     9) block_9_install_vm3 ;;
     10) block_10_validate_cluster ;;
+    17) block_17_create_redis_vm1 ;;
+    18) block_18_create_redis_vm2_to_7 ;;
+    19) block_19_install_redis_cluster_nodes ;;
+    20) block_20_bootstrap_redis_cluster ;;
+    21) block_21_validate_redis_cluster ;;
+    create-vms) block_create_vms ;;
     11) block_11_publish_homepages ;;
     12) block_12_configure_winter_lb ;;
     13) block_13_validate_winter_lb ;;
     14) block_14_fix_runtime_permissions ;;
+    15) block_15_delete_winter_vms ;;
+    16) block_16_print_create_vm_commands ;;
     all)
       block_1_poweroff_django_nodes
       block_2_network_cluster_settings
       block_3_mysql_cluster_settings
+      block_17_create_redis_vm1
+      block_18_create_redis_vm2_to_7
+      block_19_install_redis_cluster_nodes
+      block_20_bootstrap_redis_cluster
+      block_21_validate_redis_cluster
       block_4_create_vm1
       block_5_install_clean_vm1
       block_6_create_vm2
@@ -648,6 +1061,7 @@ main() {
       block_13_validate_winter_lb
       block_14_fix_runtime_permissions
       ;;
+    create-vms-commands) block_16_print_create_vm_commands ;;
     *)
       usage
       exit 1

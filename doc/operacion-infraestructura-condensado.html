@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operacion Infraestructura HA/HC - Tabla Operativa</title>
+  <style>
+    :root {
+      --bg: #f3f5f7;
+      --card: #ffffff;
+      --ink: #1f2933;
+      --muted: #52606d;
+      --line: #d9e2ec;
+      --head: #102a43;
+      --accent: #2f855a;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "JetBrains Mono", "Fira Code", "DejaVu Sans Mono", monospace;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+    .wrap {
+      max-width: 1800px;
+      margin: 10px auto;
+      padding: 0 10px 24px;
+    }
+    h1 {
+      font-size: 14px;
+      margin: 0 0 6px;
+      color: var(--head);
+    }
+    h2 {
+      font-size: 12px;
+      margin: 14px 0 6px;
+      color: var(--head);
+    }
+    .meta {
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      box-shadow: 0 1px 2px rgba(16, 42, 67, 0.05);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 5px;
+      vertical-align: top;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+    th {
+      background: #e6eef5;
+      color: #0b2239;
+      font-weight: 700;
+      text-align: left;
+    }
+    code, pre {
+      font-family: "JetBrains Mono", "Fira Code", "DejaVu Sans Mono", monospace;
+      font-size: 10px;
+    }
+    pre {
+      background: #0f1720;
+      color: #d7e2ea;
+      border-radius: 6px;
+      padding: 8px;
+      margin: 6px 0;
+      white-space: pre-wrap;
+    }
+    .ok {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .note {
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Operacion Infraestructura HA/HC - Resumen Condensado</h1>
+    <div class="meta">Dominio: mimas.net / ti.mimas.net | Backend activo recomendado: <span class="ok">Winter + Redis Cluster (APP_STACK=winter)</span> | Formato: tabla operativa compacta</div>
+
+    <div class="card">
+      <h2>Comandos ejecutados para levantar las VMs</h2>
+      <pre>which virsh && virsh --version
+virsh list --all
+bash configuraciones-run.sh 2>&1
+virsh list --all</pre>
+      <pre>Resultado final esperado:
+    [OK] Arranque completado.
+    VMs running core: dns-principal, dns-delegado, mariadb-1, mariadb-2, mariadb-3,
+    maxscale-1, redis-1..redis-7, lb1, lb2 y stack backend seleccionado por APP_STACK (winter o django).</pre>
+    </div>
+
+    <div class="card">
+      <h2>1) Inventario de VMs + comandos de operacion y configuracion</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 10%">VM</th>
+            <th style="width: 8%">IP principal</th>
+            <th style="width: 10%">Rol</th>
+            <th style="width: 20%">Comandos mas usados (servicios)</th>
+            <th style="width: 23%">Comandos para modificar configuracion</th>
+            <th style="width: 29%">Redireccion/proxy (Nginx) y notas</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>dns-principal</td>
+            <td>192.168.10.10</td>
+            <td>BIND9 master</td>
+            <td>systemctl status|restart bind9<br>rndc status<br>named-checkconf</td>
+            <td>nano /etc/bind/named.conf.local<br>nano /etc/bind/db.mimas.net<br>nano /etc/bind/db.gepardo.com<br>named-checkzone mimas.net /etc/bind/db.mimas.net<br>systemctl reload bind9</td>
+            <td>Delega y/o forward de zonas (ti.mimas.net, occidente.gepardo.com). Validar serial SOA tras cambios.</td>
+          </tr>
+          <tr>
+            <td>dns-delegado</td>
+            <td>192.168.10.11</td>
+            <td>BIND9 delegado</td>
+            <td>systemctl status|restart bind9<br>rndc reload ti.mimas.net</td>
+            <td>nano /etc/bind/db.ti.mimas.net<br>nano /etc/bind/db.occidente.gepardo.com<br>named-checkzone ti.mimas.net /etc/bind/db.ti.mimas.net</td>
+            <td>Autoridad de ti.mimas.net. Aqui se agregan A/CNAME de app1, app2, app3, lb1, db, redis, redis1..redis7.</td>
+          </tr>
+          <tr>
+            <td>lb1 / lb2</td>
+            <td>192.168.10.20 / .21</td>
+            <td>Nginx LB</td>
+            <td>systemctl status|restart nginx<br>nginx -t<br>ss -lntup | grep nginx</td>
+            <td>nano /etc/nginx/sites-available/ti.mimas.net<br>ln -sf /etc/nginx/sites-available/ti.mimas.net /etc/nginx/sites-enabled/ti.mimas.net<br>nginx -t && systemctl reload nginx</td>
+            <td>Archivo clave de redireccion/proxy: /etc/nginx/sites-available/ti.mimas.net<br>Bloque ejemplo: upstream winter_kvm_pool { server 192.168.20.10; server 192.168.20.11; server 192.168.20.12; } + proxy_pass http://winter_kvm_pool;</td>
+          </tr>
+          <tr>
+            <td>app backend 1/2/3</td>
+            <td>192.168.20.10/.11/.12</td>
+            <td>WinterCMS (actual) / Django (alterno)</td>
+            <td>Winter: systemctl status|restart nginx php*-fpm<br>Django: systemctl status|restart django-gunicorn.service</td>
+            <td>Winter: /opt/apps/wintercms/.env y /etc/nginx/sites-available/wintercms.conf<br>Django: /opt/apps/mi-proyecto/.env y unidad gunicorn</td>
+            <td>IPs compartidas entre stacks. Usar APP_STACK en run/stop para evitar operar ambos a la vez.</td>
+          </tr>
+          <tr>
+            <td>mariadb-1/2/3</td>
+            <td>192.168.30.21/.22/.23</td>
+            <td>MariaDB Galera</td>
+            <td>systemctl status|restart mariadb<br>mysql -u root -p -e "SHOW STATUS LIKE 'wsrep%';"</td>
+            <td>nano /etc/mysql/mariadb.conf.d/50-server.cnf<br>galera_new_cluster (solo bootstrap)<br>systemctl restart mariadb</td>
+            <td>Modificar solo nodo bootstrap con cuidado. Verificar wsrep_cluster_size luego de reinicios.</td>
+          </tr>
+          <tr>
+            <td>maxscale-1</td>
+            <td>192.168.30.20</td>
+            <td>Proxy DB</td>
+            <td>systemctl status|restart maxscale<br>maxctrl list servers<br>maxctrl list services</td>
+            <td>nano /etc/maxscale.cnf<br>maxscale --config-check<br>systemctl restart maxscale</td>
+            <td>Entrada DB para apps: 3306/4008 segun servicio configurado.</td>
+          </tr>
+          <tr>
+            <td>appWinter1/2/3</td>
+            <td>192.168.20.10/.11/.12</td>
+            <td>WinterCMS</td>
+            <td>systemctl status|restart nginx php8.1-fpm<br>journalctl -u nginx -n 50</td>
+            <td>nano /opt/apps/wintercms/.env<br>nano /etc/nginx/sites-available/wintercms.conf</td>
+            <td>Stack backend actual en pruebas HA junto a LB1/LB2.</td>
+          </tr>
+          <tr>
+            <td>ceph1</td>
+            <td>192.168.40.30 / 192.168.60.11</td>
+            <td>Ceph MON+MGR+OSD</td>
+            <td>ceph -s<br>ceph orch ps<br>systemctl status ceph-*.target</td>
+            <td>nano /etc/ceph/ceph.conf<br>ceph config dump<br>ceph osd tree</td>
+            <td>Plano interno: red 192.168.60.0/24. Clientes por red storage 192.168.40.0/24.</td>
+          </tr>
+          <tr>
+            <td>ubuntu-guest*</td>
+            <td>lab</td>
+            <td>Auxiliares</td>
+            <td>virsh start|shutdown nombre-vm</td>
+            <td>Uso libre de laboratorio</td>
+            <td>No impactan servicios core del dominio ti.mimas.net.</td>
+          </tr>
+          <tr>
+            <td>Host KVM</td>
+            <td>host fisico</td>
+            <td>Hypervisor</td>
+            <td>virsh list --all<br>virsh start vm<br>virsh shutdown vm<br>virsh reboot vm</td>
+            <td>bash configuraciones-run.sh<br>bash configuraciones-despliegue.sh precheck|run</td>
+            <td>Orquestacion central del laboratorio.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>2) Archivos criticos por maquina/rol</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 14%">Maquina/Rol</th>
+            <th style="width: 36%">Archivos criticos</th>
+            <th style="width: 26%">Que controla</th>
+            <th style="width: 24%">Comando de validacion</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>DNS principal</td>
+            <td>/etc/bind/named.conf<br>/etc/bind/named.conf.local<br>/etc/bind/db.mimas.net<br>/etc/bind/db.gepardo.com</td>
+            <td>Zonas master, delegaciones, registros NS/A</td>
+            <td>named-checkconf<br>named-checkzone mimas.net /etc/bind/db.mimas.net</td>
+          </tr>
+          <tr>
+            <td>DNS delegado</td>
+            <td>/etc/bind/named.conf.local<br>/etc/bind/db.ti.mimas.net<br>/etc/bind/db.occidente.gepardo.com</td>
+            <td>Subdominios ti.mimas.net y occidente.gepardo.com</td>
+            <td>named-checkzone ti.mimas.net /etc/bind/db.ti.mimas.net</td>
+          </tr>
+          <tr>
+            <td>Nginx LB</td>
+            <td>/etc/nginx/nginx.conf<br>/etc/nginx/sites-available/ti.mimas.net<br>/etc/nginx/sites-enabled/ti.mimas.net</td>
+            <td>Vhosts, TLS, upstream, proxy_pass a appDjango1/2/3</td>
+            <td>nginx -t && systemctl reload nginx</td>
+          </tr>
+          <tr>
+            <td>Backend app (Winter)</td>
+            <td>/opt/apps/wintercms/.env<br>/etc/nginx/sites-available/wintercms.conf</td>
+            <td>Conexion a MaxScale, Redis de sesiones, host header y runtime de Winter</td>
+            <td>php artisan winter:up<br>systemctl status nginx</td>
+          </tr>
+          <tr>
+            <td>MariaDB</td>
+            <td>/etc/mysql/mariadb.conf.d/50-server.cnf<br>/etc/mysql/my.cnf</td>
+            <td>Parametros Galera/replicacion/red</td>
+            <td>mysql -e "SHOW VARIABLES LIKE 'wsrep%';"</td>
+          </tr>
+          <tr>
+            <td>MaxScale</td>
+            <td>/etc/maxscale.cnf</td>
+            <td>Servicios de lectura/escritura y routing</td>
+            <td>maxscale --config-check<br>maxctrl list services</td>
+          </tr>
+          <tr>
+            <td>Redis cluster</td>
+            <td>/etc/redis/redis.conf<br>/var/lib/redis/nodes.conf</td>
+            <td>Cache/sesiones WinterCMS en cluster (7 nodos)</td>
+            <td>redis-cli -h 127.0.0.1 cluster info<br>redis-cli -h 127.0.0.1 cluster nodes</td>
+          </tr>
+          <tr>
+            <td>Ceph</td>
+            <td>/etc/ceph/ceph.conf<br>/etc/ceph/ceph.client.admin.keyring</td>
+            <td>Topologia del cluster y autenticacion de cliente admin</td>
+            <td>ceph -s<br>ceph health detail</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>3) Comandos SSH para acceso a cada server</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 20%">Servidor</th>
+            <th style="width: 14%">IP</th>
+            <th style="width: 66%">Comando SSH</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>dns-principal</td><td>192.168.10.10</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.10</td></tr>
+          <tr><td>dns-delegado</td><td>192.168.10.11</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.11</td></tr>
+          <tr><td>lb1</td><td>192.168.10.20</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.20</td></tr>
+          <tr><td>lb2</td><td>192.168.10.21</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.21</td></tr>
+          <tr><td>app backend 1</td><td>192.168.20.10</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.10</td></tr>
+          <tr><td>app backend 2</td><td>192.168.20.11</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.11</td></tr>
+          <tr><td>app backend 3</td><td>192.168.20.12</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.12</td></tr>
+          <tr><td>maxscale-1</td><td>192.168.30.20</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.20</td></tr>
+          <tr><td>mariadb-1</td><td>192.168.30.21</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.21</td></tr>
+          <tr><td>mariadb-2</td><td>192.168.30.22</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.22</td></tr>
+          <tr><td>mariadb-3</td><td>192.168.30.23</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.23</td></tr>
+          <tr><td>redis-1</td><td>192.168.30.10</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.10</td></tr>
+          <tr><td>redis-2</td><td>192.168.30.11</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.11</td></tr>
+          <tr><td>redis-3</td><td>192.168.30.12</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.12</td></tr>
+          <tr><td>redis-4</td><td>192.168.30.13</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.13</td></tr>
+          <tr><td>redis-5</td><td>192.168.30.14</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.14</td></tr>
+          <tr><td>redis-6</td><td>192.168.30.15</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.15</td></tr>
+          <tr><td>redis-7</td><td>192.168.30.16</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.16</td></tr>
+          <tr><td>ceph1</td><td>192.168.60.11</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.60.11</td></tr>
+          <tr><td>bastion</td><td>192.168.50.2</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.50.2</td></tr>
+          <tr><td>monitor</td><td>192.168.50.3</td><td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.50.3</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Tip: si usas bastion, aplica ProxyJump: ssh -J userinfrakv@192.168.50.2 userinfrakv@IP_DESTINO</p>
+    </div>
+
+    <div class="card">
+      <h2>4) Comandos de diagnostico/pruebas (host vs dentro de VM)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 16%">Objetivo</th>
+            <th style="width: 42%">Desde host (afuera)</th>
+            <th style="width: 42%">Dentro de la VM / entre VMs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Estado de VMs</td>
+            <td>virsh list --all<br>virsh domstate appDjango1<br>virsh console appDjango1</td>
+            <td>uptime<br>hostname -f<br>ip -br a</td>
+          </tr>
+          <tr>
+            <td>Red y reachability</td>
+            <td>ping -c 3 192.168.10.20<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.10 "ip route"</td>
+            <td>ping -c 3 192.168.30.20<br>nc -zv 192.168.30.20 3306<br>traceroute 192.168.10.10</td>
+          </tr>
+          <tr>
+            <td>DNS</td>
+            <td>dig @192.168.10.10 app1.ti.mimas.net +short<br>dig @192.168.10.11 db.ti.mimas.net +short</td>
+            <td>named-checkconf<br>named-checkzone ti.mimas.net /etc/bind/db.ti.mimas.net<br>rndc reload</td>
+          </tr>
+          <tr>
+            <td>Nginx LB</td>
+            <td>curl -I http://www.ti.mimas.net<br>curl -H "Host: app1.ti.mimas.net" http://192.168.10.20/</td>
+            <td>nginx -t<br>systemctl status nginx<br>tail -f /var/log/nginx/access.log /var/log/nginx/error.log</td>
+          </tr>
+          <tr>
+            <td>Django</td>
+            <td>curl -I http://192.168.20.10<br>ssh ... "systemctl status gunicorn"</td>
+            <td>python manage.py check<br>python manage.py showmigrations<br>journalctl -u gunicorn -f</td>
+          </tr>
+          <tr>
+            <td>MariaDB/Galera</td>
+            <td>nc -zv 192.168.30.21 3306<br>mysql -h 192.168.30.20 -P 3306 -u app -p</td>
+            <td>mysql -u root -p -e "SHOW STATUS LIKE 'wsrep_cluster_size';"<br>systemctl status mariadb</td>
+          </tr>
+          <tr>
+            <td>MaxScale</td>
+            <td>nc -zv 192.168.30.20 3306<br>nc -zv 192.168.30.20 4008</td>
+            <td>maxctrl list servers<br>maxctrl list services<br>journalctl -u maxscale -n 100</td>
+          </tr>
+          <tr>
+            <td>Redis</td>
+            <td>nc -zv 192.168.30.10 6379<br>nc -zv 192.168.30.11 6379<br>nc -zv 192.168.30.12 6379<br>nc -zv 192.168.30.13 6379<br>nc -zv 192.168.30.14 6379<br>nc -zv 192.168.30.15 6379<br>nc -zv 192.168.30.16 6379</td>
+            <td>redis-cli -h 127.0.0.1 cluster info<br>redis-cli -h 127.0.0.1 cluster nodes</td>
+          </tr>
+          <tr>
+            <td>Ceph</td>
+            <td>nc -zv 192.168.40.30 6789<br>nc -zv 192.168.40.30 3300</td>
+            <td>ceph -s<br>ceph osd tree<br>ceph health detail</td>
+          </tr>
+          <tr>
+            <td>Logs globales</td>
+            <td>ssh ... "journalctl -p err -n 100 --no-pager"</td>
+            <td>journalctl -xe<br>dmesg | tail -n 50<br>df -h && free -m</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Validacion real de comandos informativos (2026-05-12)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 38%">Comando</th>
+            <th style="width: 8%">Estado</th>
+            <th style="width: 54%">Resultado / ajuste recomendado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>virsh list --all / virsh domstate appDjango1</td><td>OK</td><td>Funcionan y muestran VMs en running.</td></tr>
+          <tr><td>ping -c 2 192.168.10.20</td><td>OK</td><td>Conectividad a LB confirmada.</td></tr>
+          <tr><td>dig @192.168.10.10 app1.ti.mimas.net +short</td><td>OK</td><td>Resuelve 192.168.20.10.</td></tr>
+          <tr><td>dig @192.168.10.11 db.ti.mimas.net +short</td><td>OK</td><td>Resuelve 192.168.30.20.</td></tr>
+          <tr><td>curl -I http://www.ti.mimas.net</td><td>OK</td><td>Respuesta HTTP valida (redireccion HTTP esperada).</td></tr>
+          <tr><td>curl -I -H "Host: app1.ti.mimas.net" http://192.168.10.20/</td><td>OK</td><td>LB responde correctamente.</td></tr>
+          <tr><td>curl -I http://192.168.20.10</td><td>OK</td><td>Nodo backend responde HTTP.</td></tr>
+          <tr><td>nc -zv 192.168.30.20 3306 / 4008</td><td>OK</td><td>Puertos de MaxScale accesibles.</td></tr>
+          <tr><td>nc -zv 192.168.30.21 3306</td><td>FAIL</td><td>Connection refused: MariaDB en db1 no esta arriba actualmente (comando valido).</td></tr>
+          <tr><td>nc -zv 192.168.30.10 6379 / 192.168.30.11 6379</td><td>FAIL</td><td>Timeout / no route: Redis-1/2 no estan alcanzables en este host/ruta.</td></tr>
+          <tr><td>nc -zv 192.168.40.30 6789 / 3300</td><td>FAIL</td><td>No route o timeout hacia red storage desde host actual.</td></tr>
+          <tr><td>SSH con userinfrakv a 192.168.10.x, 20.x, 30.20-23, 60.11</td><td>OK</td><td>Acceso confirmado a DNS, LB, nodos winter/app, DB y ceph1.</td></tr>
+          <tr><td>SSH a 192.168.30.10, 192.168.30.11, 192.168.50.2, 192.168.50.3</td><td>FAIL</td><td>No route to host (segmentos/rutas no expuestos desde host actual).</td></tr>
+          <tr><td>nginx -t, systemctl status nginx, ss -lntup | grep nginx</td><td>OK</td><td>Valido en lb1/lb2.</td></tr>
+          <tr><td>systemctl status gunicorn en 192.168.20.10/11/12</td><td>FAIL</td><td>Unit gunicorn.service could not be found. Estos nodos reportan hostnames winter1/2/3.</td></tr>
+          <tr><td>systemctl status mariadb en 192.168.30.21/22/23</td><td>FAIL</td><td>Servicio existe pero en estado failed en al menos db1; comando valido para diagnostico.</td></tr>
+          <tr><td>maxctrl list servers/services y maxscale --config-check</td><td>OK</td><td>Comandos operativos en maxscale-1.</td></tr>
+          <tr><td>ceph -s / ceph osd tree / ceph health detail</td><td>OK</td><td>Comandos ejecutan en ceph1.</td></tr>
+          <tr><td>SKIP: virsh console, tail -f, journalctl -f, mysql -p</td><td>SKIP</td><td>Se omiten por ser interactivos o bloqueantes.</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Las IPs 192.168.20.10/11/12 son compartidas por backend. Para cambiar de stack usar APP_STACK=winter|django en configuraciones-run.sh y configuraciones-stop.sh.</p>
+    </div>
+  </div>
+</body>
+</html>
