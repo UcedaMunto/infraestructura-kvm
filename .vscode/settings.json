@@ -24,6 +24,7 @@
             "approve": true,
             "matchCommandLine": true
         },
-        "virsh": true
+        "virsh": true,
+        "mkdir": true
     }
 }

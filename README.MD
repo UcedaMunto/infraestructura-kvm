@@ -1,4 +1,4 @@
-# Infraestructura HA/HC Empresarial para Django sobre KVM  
+# Infraestructura HA/HC Empresarial para WinterCMS sobre KVM  
 ## Dominio principal: mimas.net  
 ## Subdominio delegado: ti.mimas.net  
 
@@ -22,16 +22,16 @@
 | **DNS Delegado TI** | eth0 → 192.168.10.11 | Zona ti.mimas.net | 53 TCP/UDP, 22, 80, 443 | ns1.ti.mimas.net |
 |  | eth1 → 192.168.50.11 | Administración | 22 | admin.ns1.ti.mimas.net |
 | **NGINX LB-1** | eth0 → 192.168.10.20 | Entrada pública principal | 80, 443, 22, VRRP 112 | www.ti.mimas.net |
-|  | eth1 → 192.168.20.20 | Proxy a Django | 80, 443 | lb1.ti.mimas.net |
+|  | eth1 → 192.168.20.20 | Proxy a WinterCMS | 80, 443 | lb1.ti.mimas.net |
 |  | eth2 → 192.168.50.20 | Administración | 22 | admin.lb1.ti.mimas.net |
 | **NGINX LB-2** | eth0 → 192.168.10.21 | Balanceador contingencia | 80, 443, 22, VRRP 112 | lb2.ti.mimas.net |
-|  | eth1 → 192.168.20.21 | Proxy a Django | 80, 443 | — |
+|  | eth1 → 192.168.20.21 | Proxy a WinterCMS | 80, 443 | — |
 |  | eth2 → 192.168.50.21 | Administración | 22 | admin.lb2.ti.mimas.net |
-| **Django App-1 / VM appDjango1** | eth0 → 192.168.20.10 | Aplicación Django/Gunicorn | 80, 22 | app1.ti.mimas.net |
+| **WinterCMS App-1 / VM appWinter1** | eth0 → 192.168.20.10 | Aplicación WinterCMS/PHP-FPM | 80, 22 | app1.ti.mimas.net |
 |  | eth1 → 192.168.30.30 | Redis / MariaDB acceso | 3306, 6379 | — |
-| **Django App-2 / VM appDjango2** | eth0 → 192.168.20.11 | Aplicación Django/Gunicorn | 80, 22 | app2.ti.mimas.net |
+| **WinterCMS App-2 / VM appWinter2** | eth0 → 192.168.20.11 | Aplicación WinterCMS/PHP-FPM | 80, 22 | app2.ti.mimas.net |
 |  | eth1 → 192.168.30.31 | Redis / MariaDB acceso | 3306, 6379 | — |
-| **Django App-3 / VM appDjango3** | eth0 → 192.168.20.12 | Aplicación Django/Gunicorn | 80, 22 | app3.ti.mimas.net |
+| **WinterCMS App-3 / VM appWinter3** | eth0 → 192.168.20.12 | Aplicación WinterCMS/PHP-FPM | 80, 22 | app3.ti.mimas.net |
 |  | eth1 → 192.168.30.32 | Redis / MariaDB acceso | 3306, 6379 | — |
 | **Redis-1** | eth0 → 192.168.30.10 | Cluster sesiones | 6379, 16379, 22 | redis1.ti.mimas.net |
 |  | eth1 → 192.168.50.40 | Administración | 22 | admin.redis1.ti.mimas.net |
@@ -64,7 +64,7 @@
 **Observaciones:**
 - Los nodos Ceph adicionales fueron retirados del laboratorio y ya no forman parte del inventario activo.
 - `red-ceph-cluster` (192.168.60.0/24) queda para el plano interno del nodo Ceph activo.
-- `red-storage` (192.168.40.0/24) queda como red pública para clientes (Django y/o backups).
+- `red-storage` (192.168.40.0/24) queda como red pública para clientes (WinterCMS y/o backups).
 
 ---
 
@@ -73,9 +73,9 @@
 | Red | Segmento | Uso principal | Sistemas involucrados | Seguridad recomendada |
 |-----|----------|---------------|------------------------|-----------------------|
 | **Red Principal** | 192.168.10.0/24 | DNS, acceso público, balanceadores, entrada externa | DNS, NGINX, clientes | Firewall público, WAF, TLS |
-| **Red Backend** | 192.168.20.0/24 | Aplicaciones Django, Gunicorn, servicios internos web | Django nodes, NGINX interno | Solo balanceadores y admin |
+| **Red Backend** | 192.168.20.0/24 | Aplicaciones WinterCMS, PHP-FPM, servicios internos web | WinterCMS nodes, NGINX interno | Solo balanceadores y admin |
 | **Red DB / Redis** | 192.168.30.0/24 | Base de datos, sesiones, cache | MariaDB, MaxScale, Redis | Acceso restringido por backend |
-| **Red Storage** | 192.168.40.0/24 | CephFS, archivos, media, backups | Ceph cluster, DB backups, Django media | Solo nodos autorizados |
+| **Red Storage** | 192.168.40.0/24 | CephFS, archivos, media, backups | Ceph cluster, DB backups, WinterCMS media | Solo nodos autorizados |
 | **Red Administrativa** | 192.168.50.0/24 | SSH, monitoreo, gestión, bastion | Todos los nodos | VPN, MFA, acceso limitado |
 | **Red Ceph Cluster** | 192.168.60.0/24 | Plano interno de Ceph | Ceph Node-1 | Aislada de cliente, solo tráfico Ceph |
 
@@ -86,8 +86,8 @@
 | Nombre red | Bridge KVM | Segmento | Gateway | DHCP | Modo libvirt | Nodos conectados |
 |------------|-----------|----------|---------|------|--------------|-----------------|
 | **red-principal** | br0 | 192.168.10.0/24 | 192.168.10.1 | No (IPs fijas) | bridge / NAT | KVM Hosts, DNS-1, DNS-2, NGINX LB-1/2 |
-| **red-backend** | br1 | 192.168.20.0/24 | 192.168.20.1 | No (IPs fijas) | bridge | NGINX LB-1, appDjango1/appDjango2/appDjango3 |
-| **red-db-redis** | br2 | 192.168.30.0/24 | 192.168.30.1 | No (IPs fijas) | bridge | appDjango1/appDjango2/appDjango3, Redis-1/2, MaxScale, MariaDB-1/2/3 |
+| **red-backend** | br1 | 192.168.20.0/24 | 192.168.20.1 | No (IPs fijas) | bridge | NGINX LB-1, appWinter1/appWinter2/appWinter3 |
+| **red-db-redis** | br2 | 192.168.30.0/24 | 192.168.30.1 | No (IPs fijas) | bridge | appWinter1/appWinter2/appWinter3, Redis-1/2, MaxScale, MariaDB-1/2/3 |
 | **red-storage** | br3 | 192.168.40.0/24 | 192.168.40.1 | No (IPs fijas) | bridge | MariaDB-1/2/3, Ceph Gateway, Storage-1/2/3 |
 | **red-admin** | br4 | 192.168.50.0/24 | 192.168.50.1 | No (IPs fijas) | bridge | Todos los nodos (interfaz de gestión), Bastion, Monitorización |
 | **red-ceph-cluster** | br5 | 192.168.60.0/24 | 192.168.60.1 | No (IPs fijas) | bridge | Ceph Node-1 y nodos que participen en el plano interno Ceph |
@@ -98,7 +98,7 @@
 - `red-backend` y `red-db-redis` también usan NAT en laboratorio para permitir `apt-get` durante el aprovisionamiento inicial. En producción estas redes serían bridge aisladas sin NAT.
 - `red-storage` y `red-admin` son redes internas aisladas (modo `bridge` sin NAT).
 - `red-ceph-cluster` es red interna aislada (modo `bridge` sin NAT) para tráfico interno Ceph.
-- En la automatización actual, las VMs Django se crean con 2 interfaces: `red-backend` y `red-db-redis`. Las interfaces de storage/admin quedan para una fase posterior.
+- En la automatización actual, las VMs WinterCMS se crean con 2 interfaces: `red-backend` y `red-db-redis`. Las interfaces de storage/admin quedan para una fase posterior.
 - El Bastion (192.168.50.2) es el único punto de acceso SSH externo a `red-admin`.
 
 ---
@@ -108,10 +108,10 @@
 1. Configurar las redes base de KVM y validar conectividad entre segmentos.
 2. Implementar los servidores DNS y comprobar resolucion de `mimas.net` y `ti.mimas.net`.
 3. Desplegar los balanceadores NGINX y verificar acceso por la red principal y backend.
-4. Preparar los nodos Django backend (`appDjango1`, `appDjango2`, `appDjango3`) y validar la aplicacion en cada servidor.
+4. Preparar los nodos WinterCMS backend (`appWinter1`, `appWinter2`, `appWinter3`) y validar la aplicacion en cada servidor.
 5. Implementar Redis para sesiones y comprobar replicacion o failover.
 6. Montar MariaDB con MaxScale y validar acceso, replicacion y balanceo.
-7. Desplegar la capa de almacenamiento Ceph y probar montaje y acceso desde Django y MariaDB.
+7. Desplegar la capa de almacenamiento Ceph y probar montaje y acceso desde WinterCMS y MariaDB.
 8. Configurar la red administrativa, bastion y monitorizacion.
 9. Ejecutar pruebas integrales de alta disponibilidad, conectividad y servicios publicados.
 

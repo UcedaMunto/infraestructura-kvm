@@ -17,7 +17,7 @@ package "DNS Infrastructure" {
         component "ns1\n192.168.10.10" as ns1 #PRIMARY_COLOR
         database "Zone Files" as zones_ns1 #ZONE_COLOR {
             component "mimas.net\nSOA: ns1.mimas.net\nSerial: 2026050218" as zone_mimas
-            component "ti.mimas.net\n(Forward Only)\n→ 192.168.10.11" as zone_ti_forward
+            component "ti.mimas.net\n(Forward Only)\n2 192.168.10.11" as zone_ti_forward
             component "gepardo.com\nSOA: ns\nSerial: 6" as zone_gepardo
         }
     }
@@ -33,9 +33,9 @@ package "DNS Infrastructure" {
 
 package "Domain Hierarchy" {
     component "Root (.)" as root #CLIENT_COLOR
-    component "gepardo.com\nNS: ns → 192.168.20.10" as gep_domain
+    component "gepardo.com\nNS: ns 2.168.20.10" as gep_domain
     component "occidente.gepardo.com\nNS: ns.occidente.gepardo.com\n(Delegated)" as occ_domain
-    component "ti.mimas.net\nNS: ns1.ti.mimas.net → 192.168.10.11" as ti_domain
+    component "ti.mimas.net\nNS: ns1.ti.mimas.net 2.168.10.11" as ti_domain
 }
 
 package "Records - occidente.gepardo.com" {

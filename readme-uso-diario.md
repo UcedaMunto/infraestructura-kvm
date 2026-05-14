@@ -7,7 +7,7 @@
 3. [WinterCMS Temporal](#wintercms-temporal)
 4. [DNS](#dns)
 5. [NGINX Load Balancers](#nginx-load-balancers)
-6. [Django Apps](#django-apps)
+6. [WinterCMS Apps](#wintercms-apps)
 7. [Redis](#redis)
 8. [MySQL/MariaDB](#mysqlmariadb)
 9. [MaxScale](#maxscale)
@@ -27,6 +27,8 @@ BASE_DIR="${BASE_DIR:-$HOME/Documents/cluster-ceph/proyecto-manual-infraestructu
 KEY="$BASE_DIR/ssh-keys/id_rsa"
 VM_USER="userinfrakv"  # O el usuario que uses en tus VMs
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8"
+# Opcion para forzar que no pida password en scripts:
+BATCH_OPTS="$SSH_OPTS -o BatchMode=yes -o LogLevel=ERROR"
 
 # Alias útiles
 alias ssh-bastion="ssh -i $KEY $SSH_OPTS ${VM_USER}@192.168.50.2"
@@ -43,15 +45,26 @@ alias ssh-lb1="ssh -i $KEY $SSH_OPTS ${VM_USER}@192.168.10.20"
 alias ssh-lb2="ssh -i $KEY $SSH_OPTS ${VM_USER}@192.168.10.21"
 alias ssh-dns1="ssh -i $KEY $SSH_OPTS ${VM_USER}@192.168.10.10"
 alias ssh-dns2="ssh -i $KEY $SSH_OPTS ${VM_USER}@192.168.10.11"
+
+# Alias via bastion (ProxyJump) para uso desde fuera de red-admin
+alias sshj-app1="ssh -i $KEY $SSH_OPTS -J ${VM_USER}@192.168.50.2 ${VM_USER}@192.168.20.10"
+alias sshj-mysql1="ssh -i $KEY $SSH_OPTS -J ${VM_USER}@192.168.50.2 ${VM_USER}@192.168.30.21"
 ```
 
-### Conexiones directas
+### Modos de acceso SSH
+
+En este laboratorio hay 2 escenarios validos:
+
+- Modo local (host KVM con bridges de libvirt): puedes conectar directo a cada IP.
+- Modo externo (sin acceso directo a redes internas): debes entrar por bastion (`192.168.50.2`) usando `-J`.
+
+### Conexiones directas (modo local)
 
 ```bash
 # Bastion (punto de entrada recomendado)
 ssh -i $KEY $SSH_OPTS userinfrakv@192.168.50.2
 
-# Apps Django
+# Apps WinterCMS
 ssh -i $KEY $SSH_OPTS userinfrakv@192.168.20.10  # app1
 ssh -i $KEY $SSH_OPTS userinfrakv@192.168.20.11  # app2
 ssh -i $KEY $SSH_OPTS userinfrakv@192.168.20.12  # app3
@@ -75,6 +88,18 @@ ssh -i $KEY $SSH_OPTS userinfrakv@192.168.10.21  # lb2
 # DNS
 ssh -i $KEY $SSH_OPTS userinfrakv@192.168.10.10  # dns1 (Principal)
 ssh -i $KEY $SSH_OPTS userinfrakv@192.168.10.11  # dns2 (Delegado)
+```
+
+### Conexiones via bastion (modo externo)
+
+```bash
+# Entrar al bastion
+ssh -i $KEY $SSH_OPTS userinfrakv@192.168.50.2
+
+# Saltar a nodos internos con ProxyJump
+ssh -i $KEY $SSH_OPTS -J userinfrakv@192.168.50.2 userinfrakv@192.168.20.10  # app1
+ssh -i $KEY $SSH_OPTS -J userinfrakv@192.168.50.2 userinfrakv@192.168.30.21  # mysql1
+ssh -i $KEY $SSH_OPTS -J userinfrakv@192.168.50.2 userinfrakv@192.168.10.10  # dns1
 ```
 
 ---
@@ -108,13 +133,9 @@ done
 ### Arranque y apagado por stack de aplicacion
 
 ```bash
-# AUTO (por defecto): usa Winter si existen appWinter1/2/3, si no usa Django
+# AUTO (por defecto): usa Winter si existen appWinter1/2/3, si no usa WinterCMS
 bash configuraciones-run.sh
 bash configuraciones-stop.sh
-
-# Forzar stack Django
-APP_STACK=django bash configuraciones-run.sh
-APP_STACK=django bash configuraciones-stop.sh
 
 # Forzar stack Winter
 APP_STACK=winter bash configuraciones-run.sh
@@ -125,18 +146,30 @@ APP_STACK=winter bash configuraciones-stop.sh
 
 ## WinterCMS Temporal
 
-Este flujo usa las mismas IPs backend de Django: 192.168.20.10, 192.168.20.11, 192.168.20.12.
+Este flujo usa las mismas IPs backend de WinterCMS: 192.168.20.10, 192.168.20.11, 192.168.20.12.
 
 - MariaDB cluster via MaxScale: 192.168.30.20:4008
 - Redis sesiones/cache: 192.168.30.20:6379 (DB 1)
 - Bloque de limpieza final: borra VMs Winter y discos
+
+### Credenciales WinterCMS Backend
+
+**URL:** `http://app1.ti.mimas.net/backend`
+
+**Usuario:** `admin@mimas.net`  
+**Contraseña:** `1234`
+
+**Alternativas de acceso:**
+- Direct node 1: `http://192.168.20.10:80/backend`
+- Direct node 2: `http://192.168.20.11:80/backend`
+- Direct node 3: `http://192.168.20.12:80/backend`
 
 ### Flujo recomendado
 
 ```bash
 cd ~/Documents/cluster-ceph/proyecto-manual-infraestructura
 
-# 1) Liberar IPs de Django y preparar parametros
+# 1) Liberar IPs de WinterCMS y preparar parametros
 bash configuraciones-wintercms.sh 1
 bash configuraciones-wintercms.sh 2
 bash configuraciones-wintercms.sh 3
@@ -287,7 +320,7 @@ sudo systemctl restart nginx
 ### Ver estado de upstream backends
 
 ```bash
-# Chequear si los backends Django están respondiendo
+# Chequear si los backends WinterCMS están respondiendo
 curl -I http://app1.ti.mimas.net:80
 curl -I http://app2.ti.mimas.net:80
 curl -I http://app3.ti.mimas.net:80
@@ -342,109 +375,59 @@ curl http://localhost/nginx_status
 
 ---
 
-## Django Apps
+## WinterCMS Apps
 
-### Verificar estado de Gunicorn
+### Estado de servicios
 
 ```bash
 # En app1/app2/app3 (192.168.20.10/11/12)
-sudo systemctl status gunicorn      # O gunicorn-app1, gunicorn-app2, etc.
-sudo systemctl status django        # Algunos setups lo llaman django
-
-# Logs en tiempo real
-sudo tail -f /var/log/gunicorn/access.log
-sudo tail -f /var/log/gunicorn/error.log
-sudo journalctl -u gunicorn -f
+sudo systemctl status nginx
+sudo systemctl status php8.1-fpm || sudo systemctl status php8.2-fpm
 ```
 
-### Verificar que Django esté respondiendo
+### Verificar respuesta HTTP
 
 ```bash
-# En el mismo servidor Django
-curl http://localhost:8000/
-curl http://localhost:8000/admin/
+# En el mismo nodo
+curl -I http://localhost/
 
-# Desde otro servidor
-curl http://192.168.20.10:8000/
-curl http://app1.ti.mimas.net:8000/  # Si DNS está disponible
+# Desde otro nodo
+curl -I http://192.168.20.10/
+curl -I -H "Host: app1.ti.mimas.net" http://192.168.10.20/
 ```
 
-### Logs Django
+### Logs WinterCMS
 
 ```bash
-# Ubicación típica
-sudo tail -f /home/userinfrakv/django/logs/gunicorn.log
-sudo tail -f /home/userinfrakv/django/logs/access.log
+# Logs web y PHP
+sudo journalctl -f -u nginx -u php8.1-fpm -u php8.2-fpm
 
-# O via journalctl
-sudo journalctl -u gunicorn -n 100 -f
-
-# Logs de aplicación Django
-tail -f /var/log/django/django.log
+# Alternativa por archivo
+sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log
+sudo tail -f /var/log/php8.1-fpm.log /var/log/php8.2-fpm.log
 ```
 
-### Reiniciar Gunicorn
+### Reinicios seguros
 
 ```bash
-# Opción 1: systemctl
-sudo systemctl restart gunicorn
-
-# Opción 2: recargar (sin downtime)
-sudo systemctl reload gunicorn
-
-# Opción 3: matar procesos y reiniciar
-sudo pkill -f gunicorn
-sudo systemctl start gunicorn
+sudo systemctl reload nginx
+sudo systemctl restart php8.1-fpm || sudo systemctl restart php8.2-fpm
 ```
 
-### Revisar configuración Django
+### Archivos críticos WinterCMS
 
 ```bash
-# Ubicación típica
-/home/userinfrakv/django/config/settings.py
-/home/userinfrakv/django/config/urls.py
-
-# Validar sintaxis
-cd /home/userinfrakv/django
-python manage.py check
-
-# Ver migraciones aplicadas
-python manage.py showmigrations
-
-# Aplicar migraciones pendientes
-python manage.py migrate
+/opt/apps/wintercms/.env
+/etc/nginx/sites-available/wintercms.conf
+/etc/php/8.1/fpm/pool.d/www.conf
+/etc/php/8.2/fpm/pool.d/www.conf
 ```
 
-### Recolectar archivos estáticos
+### Health check WinterCMS
 
 ```bash
-# Si cambias CSS/JS
-cd /home/userinfrakv/django
-python manage.py collectstatic --noinput
-
-# Luego reiniciar Gunicorn
-sudo systemctl restart gunicorn
-```
-
-### Archivos críticos Django
-
-```bash
-/home/userinfrakv/django/config/settings.py
-/home/userinfrakv/django/config/urls.py
-/home/userinfrakv/django/config/wsgi.py
-/etc/systemd/system/gunicorn.service
-/etc/systemd/system/gunicorn.socket
-```
-
-### Health check Django
-
-```bash
-# Endpoint health check
-curl -s http://app1.ti.mimas.net:8000/health/ || echo "Healthcheck failed"
-
-# O simplemente la raíz
-curl -s -o /dev/null -w "%{http_code}" http://app1.ti.mimas.net:8000/
-# Debe retornar 200 o similar, no 500 o 503
+curl -s -o /dev/null -w "%{http_code}" http://app1.ti.mimas.net/
+# Debe retornar 200/301/302, no 500/503
 ```
 
 ---
@@ -760,8 +743,8 @@ maxctrl list services --format vertical
 ### Validar balanceo de carga
 
 ```bash
-# Desde Django app, conectar a MaxScale
-mysql -h 192.168.30.20 -u django -p -e "SELECT @@server_id;"
+# Desde WinterCMS app, conectar a MaxScale
+mysql -h 192.168.30.20 -u wintercms -p -e "SELECT @@server_id;"
 # Ejecutar varias veces: debe alternar entre db1 (id=1), db2 (id=2), db3 (id=3)
 
 # Ver qué backends están en servicio
@@ -786,10 +769,10 @@ sudo journalctl -u maxscale -n 100 -f
 
 ```bash
 # Puerto 4008 = read-write (siempre va a PRIMARY db1)
-mysql -h 192.168.30.20 -P 4008 -u django -p
+mysql -h 192.168.30.20 -P 4008 -u wintercms -p
 
 # Puerto 3306 = read (balancea entre replicas)
-mysql -h 192.168.30.20 -P 3306 -u django -p
+mysql -h 192.168.30.20 -P 3306 -u wintercms -p
 ```
 
 ### Archivos críticos MaxScale
@@ -867,10 +850,10 @@ mkdir .snap/snapshot-nombre
 # El snapshot se crea automáticamente
 ```
 
-### Montar CephFS desde Django
+### Montar CephFS desde WinterCMS
 
 ```bash
-# En los servidores Django (app1/app2/app3)
+# En los servidores WinterCMS (app1/app2/app3)
 mount -t ceph 192.168.40.30:/ /mnt/ceph -o name=admin,secret=<ceph_secret>
 
 # Si está mounted automáticamente:
@@ -992,7 +975,7 @@ sudo journalctl -u <servicio> -n 50
 # 2. Validar configuración
 # MySQL: mysql -u root -p -e "SELECT 1;"
 # NGINX: sudo nginx -t
-# Django: python /home/userinfrakv/django/manage.py check
+# WinterCMS: python /home/userinfrakv/wintercms/manage.py check
 # Redis: redis-cli PING
 
 # 3. Chequear permisos
@@ -1018,8 +1001,8 @@ ps aux --sort=-%mem | head -10
 
 # 2. Según el servicio:
 
-# Django/Gunicorn
-sudo systemctl status gunicorn
+# WinterCMS/PHP-FPM
+sudo systemctl status nginx php8.1-fpm php8.2-fpm
 # Aumentar workers si hay muchas conexiones
 # Disminuir si hay falta de memoria
 
@@ -1053,8 +1036,8 @@ mysql -u root -p
 # Nginx logs
 sudo find /var/log/nginx -type f -name '*.log.*' -mtime +30 -delete
 
-# Django logs
-sudo find /var/log/django -type f -mtime +30 -delete
+# WinterCMS logs
+sudo find /var/log/wintercms -type f -mtime +30 -delete
 
 # Limpieza general
 sudo apt-get autoclean
@@ -1137,7 +1120,7 @@ cat /etc/resolv.conf
 # Debe tener "nameserver 192.168.10.10" o similar
 ```
 
-### Problema: NGINX no routea a Django
+### Problema: NGINX no routea a WinterCMS
 
 ```bash
 # 1. Chequear que backends estén UP
@@ -1152,7 +1135,7 @@ sudo grep -A 20 "upstream" /etc/nginx/nginx.conf
 # 3. Ver logs de NGINX
 sudo tail -f /var/log/nginx/error.log
 
-# 4. Chequear conectividad entre LB y Django
+# 4. Chequear conectividad entre LB y WinterCMS
 ssh -i $KEY userinfrakv@192.168.10.20
 ping 192.168.20.10
 ```
@@ -1171,9 +1154,9 @@ KEY="/path/a/ssh-keys/id_rsa"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 declare -A SERVERS=(
-  [Django-app1]="192.168.20.10"
-  [Django-app2]="192.168.20.11"
-  [Django-app3]="192.168.20.12"
+  [WinterCMS-app1]="192.168.20.10"
+  [WinterCMS-app2]="192.168.20.11"
+  [WinterCMS-app3]="192.168.20.12"
   [Redis-1]="192.168.30.10"
   [Redis-2]="192.168.30.11"
   [MySQL-1]="192.168.30.21"
@@ -1228,9 +1211,9 @@ ls -lh $BACKUP_DIR
 KEY="/path/a/ssh-keys/id_rsa"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-echo "Monitorizing Django app1..."
+echo "Monitorizing WinterCMS app1..."
 ssh -i $KEY $SSH_OPTS userinfrakv@192.168.20.10 \
-  "sudo tail -f /var/log/gunicorn/error.log" &
+  "sudo tail -f /var/log/nginx php8.1-fpm php8.2-fpm/error.log" &
 
 echo "Monitorizing MySQL..."
 ssh -i $KEY $SSH_OPTS userinfrakv@192.168.30.21 \
@@ -1251,7 +1234,7 @@ wait
 - [ ] Chequear disco en todos los nodos (df -h)
 - [ ] Revisar logs de errores
   - [ ] NGINX error.log
-  - [ ] Django gunicorn error
+  - [ ] WinterCMS nginx php8.1-fpm php8.2-fpm error
   - [ ] MySQL error log
 - [ ] Validar replicación MySQL (wsrep_cluster_size)
 - [ ] Validar replicación Redis
@@ -1261,12 +1244,51 @@ wait
 
 ---
 
-## Links útiles
+## Credenciales de Acceso
+
+### Infraestructura Linux
+
+**Usuario SSH (todos los servidores):** `userinfrakv`  
+**Contraseña SSH:** `passphrase2620-07`  
+**Clave SSH:** `/path/a/ssh-keys/id_rsa`
+
+### WinterCMS Backend
+
+**URL:** `http://app1.ti.mimas.net/backend`  
+**Usuario:** `admin@mimas.net`  
+**Contraseña:** `1234`
+
+### Base de Datos (AppDB)
+
+**Host (Write):** `192.168.30.20:4008` (MaxScale Read-Write)  
+**Host (Read):** `192.168.30.20:3306` (MaxScale Read-Only)  
+**Usuario:** `appuser`  
+**Contraseña:** `app-pass-2620`  
+**Base de Datos:** `appdb`
+
+### Redis
+
+**Host:** `192.168.30.10` (o cluster)  
+**Puerto:** `6379`  
+**DB Sessions:** `0` (prefix: {k3}_)  
+**DB Cache:** `2`
+
+### MariaDB Cluster (Galera)
+
+**Nodos:** 192.168.30.21, 192.168.30.22, 192.168.30.23  
+**Usuario root:** `root` (contraseña configurada durante deploy)
+
+### Monitorización
+
+**Grafana:** `http://192.168.50.3:3000` (admin/admin)  
+**Prometheus:** `http://192.168.50.3:9090`
+
+---
 
 - Grafana: http://192.168.50.3:3000
 - Prometheus: http://192.168.50.3:9090
 - NGINX: http://www.ti.mimas.net
-- Django: http://app1.ti.mimas.net, http://app2.ti.mimas.net, http://app3.ti.mimas.net
+- WinterCMS: http://app1.ti.mimas.net, http://app2.ti.mimas.net, http://app3.ti.mimas.net
 
 ---
 

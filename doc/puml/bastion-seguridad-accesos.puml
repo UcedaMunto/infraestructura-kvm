@@ -1,0 +1,89 @@
+@startuml BastionSeguridadAccesos
+' Diagrama especifico de bastion: seguridad y accesos
+
+skinparam backgroundColor #FAFBFC
+skinparam shadowing false
+skinparam roundcorner 12
+skinparam defaultFontName DejaVu Sans
+skinparam ArrowThickness 1.3
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam noteBackgroundColor #FFF8DC
+skinparam noteBorderColor #B38F00
+
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #2E4053
+  FontColor #1B2631
+}
+
+skinparam cloud {
+  BackgroundColor #EAF2F8
+  BorderColor #1F618D
+  FontColor #154360
+}
+
+title Bastion mimas.net - Seguridad y Flujos de Acceso SSH
+
+legend left
+  == Bastion ==
+  Hostname: bastion.mimas.net
+  IP: 192.168.50.2 (red-admin)
+
+  == Uso principal ==
+  - Punto de salto (jump host) para acceso externo
+  - Control de acceso por llave SSH
+  - Enrutamiento administrado a segmentos internos
+endlegend
+
+cloud "Admin Externo\nLaptop/Operador" as external
+node "Host KVM\nred-admin GW 192.168.50.1" as kvmhost
+node "Bastion\nbastion.mimas.net\n192.168.50.2" as bastion #E8F8F5
+
+package "Redes internas del laboratorio" {
+  node "Apps\n192.168.20.0/24" as appnet
+  node "DB/Redis\n192.168.30.0/24" as dbnet
+  node "Principal\n192.168.10.0/24" as frontnet
+  node "Storage\n192.168.40.0/24" as stnet
+  node "Ceph Cluster\n192.168.60.0/24" as cephnet
+}
+
+rectangle "Controles de seguridad en Bastion" as controls #FCF3CF
+note right of controls
+  SSH:
+  - PasswordAuthentication no
+  - PermitRootLogin no
+  - AllowTcpForwarding yes
+  - AllowAgentForwarding yes
+
+  Firewall (UFW):
+  - deny incoming (default)
+  - allow outgoing (default)
+  - allow 22/tcp
+
+  Operacion:
+  - Acceso por llaves compartidas del proyecto
+  - Jump host para ProxyJump (-J)
+end note
+
+external --> bastion : SSH 22 (llave)
+external --> bastion : ssh -J user@192.168.50.2 user@<destino>
+
+bastion --> kvmhost : Rutas estaticas via 192.168.50.1
+kvmhost --> appnet : Forward/NAT controlado
+kvmhost --> dbnet : Forward/NAT controlado
+kvmhost --> frontnet : Forward/NAT controlado
+kvmhost --> stnet : Forward/NAT controlado
+kvmhost --> cephnet : Forward/NAT controlado
+
+bastion ..> controls : Politicas activas
+
+note bottom of external
+  Escenario A (local lab):
+  - El host con bridges puede entrar directo a nodos internos.
+
+  Escenario B (externo):
+  - El acceso se realiza via bastion.
+end note
+
+@enduml

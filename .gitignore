@@ -1,1 +1,4 @@
 ssh-keys/id_rsa
+backups/
+logs/
+backups 2/

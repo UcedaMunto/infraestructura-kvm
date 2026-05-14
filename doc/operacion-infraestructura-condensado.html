@@ -90,7 +90,7 @@
 <body>
   <div class="wrap">
     <h1>Operacion Infraestructura HA/HC - Resumen Condensado</h1>
-    <div class="meta">Dominio: mimas.net / ti.mimas.net | Backend activo recomendado: <span class="ok">Winter + Redis Cluster (APP_STACK=winter)</span> | Formato: tabla operativa compacta</div>
+    <div class="meta">Dominio: mimas.net / ti.mimas.net | Backend activo recomendado: <span class="ok">Winter + Redis Cluster (APP_STACK=winter)</span></div>
 
     <div class="card">
       <h2>Comandos ejecutados para levantar las VMs</h2>
@@ -101,7 +101,7 @@ virsh list --all</pre>
       <pre>Resultado final esperado:
     [OK] Arranque completado.
     VMs running core: dns-principal, dns-delegado, mariadb-1, mariadb-2, mariadb-3,
-    maxscale-1, redis-1..redis-7, lb1, lb2 y stack backend seleccionado por APP_STACK (winter o django).</pre>
+    maxscale-1, redis-1..redis-7, lb1, lb2 y stack backend seleccionado por APP_STACK (winter o wintercms).</pre>
     </div>
 
     <div class="card">
@@ -145,10 +145,10 @@ virsh list --all</pre>
           <tr>
             <td>app backend 1/2/3</td>
             <td>192.168.20.10/.11/.12</td>
-            <td>WinterCMS (actual) / Django (alterno)</td>
-            <td>Winter: systemctl status|restart nginx php*-fpm<br>Django: systemctl status|restart django-gunicorn.service</td>
-            <td>Winter: /opt/apps/wintercms/.env y /etc/nginx/sites-available/wintercms.conf<br>Django: /opt/apps/mi-proyecto/.env y unidad gunicorn</td>
-            <td>IPs compartidas entre stacks. Usar APP_STACK en run/stop para evitar operar ambos a la vez.</td>
+            <td>WinterCMS</td>
+            <td>systemctl status|restart nginx php8.1-fpm php8.2-fpm</td>
+            <td>/opt/apps/wintercms/.env y /etc/nginx/sites-available/wintercms.conf</td>
+            <td>Backend actual en appWinter1/appWinter2/appWinter3.</td>
           </tr>
           <tr>
             <td>mariadb-1/2/3</td>
@@ -229,7 +229,7 @@ virsh list --all</pre>
           <tr>
             <td>Nginx LB</td>
             <td>/etc/nginx/nginx.conf<br>/etc/nginx/sites-available/ti.mimas.net<br>/etc/nginx/sites-enabled/ti.mimas.net</td>
-            <td>Vhosts, TLS, upstream, proxy_pass a appDjango1/2/3</td>
+            <td>Vhosts, TLS, upstream, proxy_pass a appWinter1/appWinter2/appWinter3</td>
             <td>nginx -t && systemctl reload nginx</td>
           </tr>
           <tr>
@@ -316,7 +316,7 @@ virsh list --all</pre>
         <tbody>
           <tr>
             <td>Estado de VMs</td>
-            <td>virsh list --all<br>virsh domstate appDjango1<br>virsh console appDjango1</td>
+            <td>virsh list --all<br>virsh domstate appWinter1<br>virsh console appWinter1</td>
             <td>uptime<br>hostname -f<br>ip -br a</td>
           </tr>
           <tr>
@@ -335,9 +335,9 @@ virsh list --all</pre>
             <td>nginx -t<br>systemctl status nginx<br>tail -f /var/log/nginx/access.log /var/log/nginx/error.log</td>
           </tr>
           <tr>
-            <td>Django</td>
-            <td>curl -I http://192.168.20.10<br>ssh ... "systemctl status gunicorn"</td>
-            <td>python manage.py check<br>python manage.py showmigrations<br>journalctl -u gunicorn -f</td>
+            <td>WinterCMS</td>
+            <td>curl -I http://192.168.20.10<br>ssh ... "systemctl status nginx php8.1-fpm php8.2-fpm"</td>
+            <td>php artisan winter:version<br>php artisan winter:env<br>journalctl -f -u nginx -u php8.1-fpm -u php8.2-fpm</td>
           </tr>
           <tr>
             <td>MariaDB/Galera</td>
@@ -379,7 +379,7 @@ virsh list --all</pre>
           </tr>
         </thead>
         <tbody>
-          <tr><td>virsh list --all / virsh domstate appDjango1</td><td>OK</td><td>Funcionan y muestran VMs en running.</td></tr>
+          <tr><td>virsh list --all / virsh domstate appWinter1</td><td>OK</td><td>Funcionan y muestran VMs en running.</td></tr>
           <tr><td>ping -c 2 192.168.10.20</td><td>OK</td><td>Conectividad a LB confirmada.</td></tr>
           <tr><td>dig @192.168.10.10 app1.ti.mimas.net +short</td><td>OK</td><td>Resuelve 192.168.20.10.</td></tr>
           <tr><td>dig @192.168.10.11 db.ti.mimas.net +short</td><td>OK</td><td>Resuelve 192.168.30.20.</td></tr>
@@ -393,14 +393,162 @@ virsh list --all</pre>
           <tr><td>SSH con userinfrakv a 192.168.10.x, 20.x, 30.20-23, 60.11</td><td>OK</td><td>Acceso confirmado a DNS, LB, nodos winter/app, DB y ceph1.</td></tr>
           <tr><td>SSH a 192.168.30.10, 192.168.30.11, 192.168.50.2, 192.168.50.3</td><td>FAIL</td><td>No route to host (segmentos/rutas no expuestos desde host actual).</td></tr>
           <tr><td>nginx -t, systemctl status nginx, ss -lntup | grep nginx</td><td>OK</td><td>Valido en lb1/lb2.</td></tr>
-          <tr><td>systemctl status gunicorn en 192.168.20.10/11/12</td><td>FAIL</td><td>Unit gunicorn.service could not be found. Estos nodos reportan hostnames winter1/2/3.</td></tr>
+          <tr><td>systemctl status nginx/php-fpm en 192.168.20.10/11/12</td><td>OK</td><td>Servicios disponibles en nodos winter1/2/3.</td></tr>
           <tr><td>systemctl status mariadb en 192.168.30.21/22/23</td><td>FAIL</td><td>Servicio existe pero en estado failed en al menos db1; comando valido para diagnostico.</td></tr>
           <tr><td>maxctrl list servers/services y maxscale --config-check</td><td>OK</td><td>Comandos operativos en maxscale-1.</td></tr>
           <tr><td>ceph -s / ceph osd tree / ceph health detail</td><td>OK</td><td>Comandos ejecutan en ceph1.</td></tr>
           <tr><td>SKIP: virsh console, tail -f, journalctl -f, mysql -p</td><td>SKIP</td><td>Se omiten por ser interactivos o bloqueantes.</td></tr>
         </tbody>
       </table>
-      <p class="note">Las IPs 192.168.20.10/11/12 son compartidas por backend. Para cambiar de stack usar APP_STACK=winter|django en configuraciones-run.sh y configuraciones-stop.sh.</p>
+      <p class="note">Las IPs 192.168.20.10/11/12 corresponden al backend WinterCMS actual.</p>
+    </div>
+
+    <div class="card">
+      <h2>5) TROUBLESHOOTING - Errores comunes y soluciones</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 20%">Error/Síntoma</th>
+            <th style="width: 30%">Causa probable</th>
+            <th style="width: 50%">Solución</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Invalid security token al hacer login</strong></td>
+            <td>APP_URL mal configurado, mismatch entre DNS/LB y nodo backend, CSRF token generado en contexto diferente</td>
+            <td>1) Verificar: <code>grep APP_URL /opt/apps/wintercms/.env</code><br>2) Debe ser IP del LB: <code>APP_URL=http://192.168.10.20</code><br>3) Limpiar cache: <code>php artisan cache:clear</code><br>4) Verificar Redis está accesible: <code>redis-cli ping</code></td>
+          </tr>
+          <tr>
+            <td><strong>Ruta /backend/backend/auth/signin (doble backend)</strong></td>
+            <td>backendUri en config/cms.php conflictúa con rutas de LB, middleware genera URLs con prefijo extra</td>
+            <td>1) Revisar <code>grep backendUri /opt/apps/wintercms/config/cms.php</code><br>2) Debe ser simple: <code>'backendUri' => 'auth'</code> (no 'backend')<br>3) En LB Nginx, usar rewrite para corregir: <code>rewrite ^/backend/(backend.*) /$1 permanent;</code></td>
+          </tr>
+          <tr>
+            <td><strong>404 Not Found en /backend</strong></td>
+            <td>WinterCMS routing no mapea correctamente, middleware de sesión/autenticación falla</td>
+            <td>1) Ejecutar: <code>php artisan route:list</code><br>2) Verificar que <code>ANY backend/{slug?}</code> existe<br>3) Revisar logs: <code>tail -50 /var/log/nginx/error.log</code><br>4) Reiniciar: <code>systemctl restart nginx php*-fpm</code></td>
+          </tr>
+          <tr>
+            <td><strong>Session stored in Redis pero CSRF falla</strong></td>
+            <td>Redis CLUSTER mode requiere hash-tags para slots consistentes, WinterCMS usa prefijos sin hash-tags</td>
+            <td>1) Verificar en .env: <code>REDIS_PREFIX={k3}_</code> (hash-tag con llaves {})<br>2) Verificar cluster status: <code>redis-cli -h 192.168.30.10 cluster info</code><br>3) Validar connection: <code>redis-cli -c -h 192.168.30.10 ping</code></td>
+          </tr>
+          <tr>
+            <td><strong>Nginx LB recibe POST pero retorna 403</strong></td>
+            <td>CSRF token no coincide entre GET (form load) y POST (submit), proxy_pass no preserva headers</td>
+            <td>1) En Nginx LB, verificar headers: <code>proxy_set_header Host $host;</code><br>2) Verificar X-Forwarded-For y X-Forwarded-Proto:<br><code>proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;<br>proxy_set_header X-Forwarded-Proto $scheme;</code><br>3) Reload: <code>nginx -t && systemctl reload nginx</code></td>
+          </tr>
+          <tr>
+            <td><strong>MariaDB Galera wsrep_cluster_size != 3</strong></td>
+            <td>Un nodo está fuera de la replicación, timeout en comunicación entre nodos, puerto 4567 bloqueado</td>
+            <td>1) En cada DB: <code>mysql -u root -e 'SHOW STATUS LIKE "wsrep%";'</code><br>2) Si solo 1 nodo: bootstrap el cluster: <code>mysqld --wsrep-cluster-address=gcomm://</code><br>3) Revisar logs: <code>tail -50 /var/log/mysql/error.log</code></td>
+          </tr>
+          <tr>
+            <td><strong>Redis cluster_state:fail o disconnected nodes</strong></td>
+            <td>Nodos Redis no tienen cluster-enabled activado, firewall bloquea puerto 6379 o cluster-bus (6379+10000)</td>
+            <td>1) Verificar config: <code>sudo grep cluster-enabled /etc/redis/redis.conf</code><br>2) Debe ser: <code>cluster-enabled yes</code><br>3) Reiniciar: <code>sudo systemctl restart redis-server</code><br>4) Recrear cluster: <code>redis-cli --cluster create node1:6379 ... --cluster-replicas 1</code></td>
+          </tr>
+          <tr>
+            <td><strong>DNS no resuelve app1.ti.mimas.net</strong></td>
+            <td>Registro A no existe en zona ti.mimas.net, o dns-delegado no está expuesto en DNS master</td>
+            <td>1) Verificar en master (192.168.10.10): <code>grep app1 /etc/bind/db.ti.mimas.net</code><br>2) Debe existir: <code>app1 IN A 192.168.10.20</code> (LB, no backend)<br>3) Recargar BIND: <code>rndc reload ti.mimas.net</code><br>4) Test: <code>dig @192.168.10.10 app1.ti.mimas.net +short</code></td>
+          </tr>
+          <tr>
+            <td><strong>Nginx error: [error] 123#0: *456 upstream timed out (110: Connection timed out)</strong></td>
+            <td>Backend node (192.168.20.x) no responde a tiempo, PHP-FPM bloqueado o consumiendo CPU</td>
+            <td>1) SSH a backend: <code>ssh userinfrakv@192.168.20.10</code><br>2) Revisar PHP-FPM: <code>systemctl status php*-fpm</code><br>3) Ver procesos: <code>ps aux | grep nginx php8.1-fpm php8.2-fpm</code><br>4) Aumentar timeout en LB nginx: <code>proxy_read_timeout 60s;</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>6) Comandos para revisar LOGS de cada componente (troubleshooting)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 16%">Componente</th>
+            <th style="width: 20%">Servidor(es)</th>
+            <th style="width: 64%">Comando SSH para revisar logs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Nginx LB (access)</strong></td>
+            <td>lb1 / lb2<br>192.168.10.20 / .21</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.20 "sudo tail -n 50 /var/log/nginx/access.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.21 "sudo tail -n 50 /var/log/nginx/access.log"</td>
+          </tr>
+          <tr>
+            <td><strong>Nginx LB (errors)</strong></td>
+            <td>lb1 / lb2<br>192.168.10.20 / .21</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.20 "sudo tail -n 50 /var/log/nginx/error.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.21 "sudo tail -n 50 /var/log/nginx/error.log"</td>
+          </tr>
+          <tr>
+            <td><strong>Nginx LB (systemd)</strong></td>
+            <td>lb1 / lb2<br>192.168.10.20 / .21</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.20 "sudo journalctl -u nginx -n 30 --no-pager"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.21 "sudo journalctl -u nginx -n 30 --no-pager"</td>
+          </tr>
+          <tr>
+            <td><strong>PHP-FPM (Winter)</strong></td>
+            <td>appWinter1/2/3<br>192.168.20.10 / .11 / .12</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.10 "sudo tail -n 50 /var/log/php*-fpm.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.11 "sudo tail -n 50 /var/log/php*-fpm.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.12 "sudo tail -n 50 /var/log/php*-fpm.log"</td>
+          </tr>
+          <tr>
+            <td><strong>Nginx (Winter nodes)</strong></td>
+            <td>appWinter1/2/3<br>192.168.20.10 / .11 / .12</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.10 "sudo tail -n 50 /var/log/nginx/error.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.11 "sudo tail -n 50 /var/log/nginx/error.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.20.12 "sudo tail -n 50 /var/log/nginx/error.log"</td>
+          </tr>
+          <tr>
+            <td><strong>MySQL / MariaDB (error log)</strong></td>
+            <td>mariadb-1/2/3<br>192.168.30.21 / .22 / .23</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.21 "sudo tail -n 50 /var/log/mysql/error.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.22 "sudo tail -n 50 /var/log/mysql/error.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.23 "sudo tail -n 50 /var/log/mysql/error.log"</td>
+          </tr>
+          <tr>
+            <td><strong>MySQL / MariaDB (systemd)</strong></td>
+            <td>mariadb-1/2/3<br>192.168.30.21 / .22 / .23</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.21 "sudo journalctl -u mariadb -n 30 --no-pager"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.22 "sudo journalctl -u mariadb -n 30 --no-pager"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.23 "sudo journalctl -u mariadb -n 30 --no-pager"</td>
+          </tr>
+          <tr>
+            <td><strong>MaxScale (service log)</strong></td>
+            <td>maxscale-1<br>192.168.30.20</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.20 "sudo tail -n 50 /var/log/maxscale/maxscale.log"</td>
+          </tr>
+          <tr>
+            <td><strong>MaxScale (systemd)</strong></td>
+            <td>maxscale-1<br>192.168.30.20</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.20 "sudo journalctl -u maxscale -n 30 --no-pager"</td>
+          </tr>
+          <tr>
+            <td><strong>Redis (systemd)</strong></td>
+            <td>redis-1/2/3/4/5/6/7<br>192.168.30.10-16</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.10 "sudo journalctl -u redis-server -n 30 --no-pager"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.30.11 "sudo journalctl -u redis-server -n 30 --no-pager"<br>...(repetir para .12 al .16)</td>
+          </tr>
+          <tr>
+            <td><strong>DNS BIND (query log)</strong></td>
+            <td>dns-principal<br>192.168.10.10</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.10 "sudo tail -n 50 /var/log/bind/query.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.10 "sudo journalctl -u bind9 -n 30 --no-pager"</td>
+          </tr>
+          <tr>
+            <td><strong>DNS BIND (delegado)</strong></td>
+            <td>dns-delegado<br>192.168.10.11</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.11 "sudo tail -n 50 /var/log/bind/query.log"<br>ssh -i ssh-keys/id_rsa userinfrakv@192.168.10.11 "sudo journalctl -u bind9 -n 30 --no-pager"</td>
+          </tr>
+          <tr>
+            <td><strong>Syslog (errores globales)</strong></td>
+            <td>Todos<br>cualquier IP</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@IP_TARGET "sudo journalctl -p err -n 50 --no-pager"<br>ssh -i ssh-keys/id_rsa userinfrakv@IP_TARGET "sudo tail -n 50 /var/log/syslog"</td>
+          </tr>
+          <tr>
+            <td><strong>Dmesg (kernel messages)</strong></td>
+            <td>Todos<br>cualquier IP</td>
+            <td>ssh -i ssh-keys/id_rsa userinfrakv@IP_TARGET "sudo dmesg | tail -n 50"</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3 style="font-size: 11px; margin-top: 12px;">Script rápido para revisar todos los logs (desde host):</h3>
+      <pre>bash tools-sh/check-logs-all.sh [componente]
+# Componentes: todos | lb | winter | mariadb | maxscale | redis | dns | systemd</pre>
     </div>
   </div>
 </body>

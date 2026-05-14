@@ -1,4 +1,4 @@
-# Comandos utiles de operacion (backend Winter/Django)
+# Comandos utiles de operacion (backend Winter/WinterCMS)
 
 ## Variables sugeridas
 
@@ -14,16 +14,13 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o Connect
 ```bash
 cd "$BASE_DIR"
 
-# AUTO: usa Winter si existen appWinter1/2/3, si no Django
+# AUTO: usa Winter si existen appWinter1/2/3, si no WinterCMS
 bash configuraciones-run.sh
 bash configuraciones-stop.sh
 
-# Forzado
+# Forzado a Winter
 APP_STACK=winter bash configuraciones-run.sh
 APP_STACK=winter bash configuraciones-stop.sh
-
-APP_STACK=django bash configuraciones-run.sh
-APP_STACK=django bash configuraciones-stop.sh
 ```
 
 ## Backend WinterCMS (flujo por bloques)
@@ -59,7 +56,7 @@ ssh -i "$KEY" $SSH_OPTS "$VM_USER@192.168.10.11"
 ssh -i "$KEY" $SSH_OPTS "$VM_USER@192.168.10.20"
 ssh -i "$KEY" $SSH_OPTS "$VM_USER@192.168.10.21"
 
-# Backend apps (IPs compartidas Django/Winter)
+# Backend apps (IPs compartidas WinterCMS/Winter)
 ssh -i "$KEY" $SSH_OPTS "$VM_USER@192.168.20.10"
 ssh -i "$KEY" $SSH_OPTS "$VM_USER@192.168.20.11"
 ssh -i "$KEY" $SSH_OPTS "$VM_USER@192.168.20.12"

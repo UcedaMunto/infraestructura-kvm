@@ -54,9 +54,9 @@ APP_USER="${APP_USER:-winter}"
 APP_GROUP="${APP_GROUP:-winter}"
 APP_BASE_DIR="${APP_BASE_DIR:-/opt/apps}"
 PROJECT_DIR="${PROJECT_DIR:-/opt/apps/wintercms}"
-APP_URL_1="${APP_URL_1:-https://app1.ti.mimas.net}"
-APP_URL_2="${APP_URL_2:-https://app2.ti.mimas.net}"
-APP_URL_3="${APP_URL_3:-https://app3.ti.mimas.net}"
+APP_URL_1="${APP_URL_1:-http://app1.ti.mimas.net}"
+APP_URL_2="${APP_URL_2:-http://app2.ti.mimas.net}"
+APP_URL_3="${APP_URL_3:-http://app3.ti.mimas.net}"
 
 # Bloque MySQL separado: apuntamos al cluster existente por MaxScale.
 DB_HOST="${DB_HOST:-192.168.30.20}"
@@ -157,11 +157,12 @@ install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/storage"
 install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/storage/logs"
 install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/storage/framework"
 install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/bootstrap/cache"
+install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/themes"
 
-chown -R "$APP_USER":www-data "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache"
-chmod -R ug+rwX "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache"
-find "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" -type d -exec chmod 2775 {} +
-find "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" -type f -exec chmod 664 {} +
+chown -R "$APP_USER":www-data "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" "$PROJECT_DIR/themes"
+chmod -R ug+rwX "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" "$PROJECT_DIR/themes"
+find "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" "$PROJECT_DIR/themes" -type d -exec chmod 2775 {} +
+find "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" "$PROJECT_DIR/themes" -type f -exec chmod 664 {} +
 
 if [[ -f "$PROJECT_DIR/.env" ]]; then
   chown "$APP_USER":www-data "$PROJECT_DIR/.env"
@@ -523,7 +524,8 @@ upsert_env DB_PASSWORD "$DB_PASSWORD"
 upsert_env SESSION_DRIVER "redis"
 upsert_env SESSION_CONNECTION "default"
 upsert_env SESSION_LIFETIME "120"
-upsert_env SESSION_SECURE_COOKIE "true"
+upsert_env SESSION_SECURE_COOKIE "false"
+upsert_env SESSION_DOMAIN "$HOST_HEADER"
 upsert_env CACHE_DRIVER "redis"
 upsert_env QUEUE_CONNECTION "database"
 upsert_env REDIS_CLIENT "phpredis"
@@ -555,10 +557,11 @@ install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/storage"
 install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/storage/logs"
 install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/storage/framework"
 install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/bootstrap/cache"
-chown -R "$APP_USER":www-data "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache"
-chmod -R ug+rwX "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache"
-find "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" -type d -exec chmod 2775 {} +
-find "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" -type f -exec chmod 664 {} +
+install -d -m 775 -o "$APP_USER" -g www-data "$PROJECT_DIR/themes"
+chown -R "$APP_USER":www-data "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" "$PROJECT_DIR/themes"
+chmod -R ug+rwX "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" "$PROJECT_DIR/themes"
+find "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" "$PROJECT_DIR/themes" -type d -exec chmod 2775 {} +
+find "$PROJECT_DIR/storage" "$PROJECT_DIR/bootstrap/cache" "$PROJECT_DIR/themes" -type f -exec chmod 664 {} +
 
 sudo -u "$APP_USER" bash -lc "cd '$PROJECT_DIR' && php artisan key:generate --force"
 sudo -u "$APP_USER" bash -lc "cd '$PROJECT_DIR' && php artisan optimize:clear" || true
@@ -831,7 +834,7 @@ apt-get install -y nginx curl
 
 cat >/etc/nginx/sites-available/wintercms-lb.conf <<EOF2
 upstream winter_kvm_pool {
-  least_conn;
+  ip_hash;
   server $APP1_IP:80 max_fails=3 fail_timeout=10s;
   server $APP2_IP:80 max_fails=3 fail_timeout=10s;
   server $APP3_IP:80 max_fails=3 fail_timeout=10s;
@@ -988,7 +991,7 @@ Bloques disponibles:
   11     Publicar portadas 200 en / para los tres nodos
   12     Configurar balanceadores para WinterCMS
   13     Validar WinterCMS via balanceadores
-  14     Corregir permisos runtime (storage/bootstrap/.env)
+  14     Corregir permisos runtime (storage/bootstrap/themes/.env)
   15     BORRAR VMs Winter y discos (destructivo)
   16     Mostrar comandos para crear VMs Winter
   all    Ejecutar 1,2,3,17,18,19,20,21,4,5,6,7,8,9,10,11,12,13,14
@@ -1008,7 +1011,9 @@ Flujo recomendado:
 Variables utiles para replicar:
   DB_ADMIN_NODE=192.168.30.21
   AUTO_FIX_DB_GRANTS=true|false
-  APP_URL_1=https://app1.ti.mimas.net (idem _2, _3)
+  APP_URL_1=http://app1.ti.mimas.net
+  APP_URL_2=http://app2.ti.mimas.net
+  APP_URL_3=http://app3.ti.mimas.net
   HOST_HEADER_1=app1.ti.mimas.net (idem _2, _3)
   REDIS_PREFIX={k3}_
 EOF2
